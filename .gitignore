@@ -12,3 +12,6 @@ backend/.env
 *.log
 .DS_Store
 *.bak
+
+# Local prompt/scratch notes: never publish (contains local paths).
+DEPLOY_PROMPT.md

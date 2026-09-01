@@ -169,7 +169,14 @@
     </section>
 
     <section class="card">
-      <h3>Early-warning dissemination</h3>
+      <h3>Early-warning dissemination
+        <span id="wsInd" title="live push channel"
+              style="float:right;font-weight:400;font-size:12px;color:var(--muted)">
+          <span id="wsDot" style="display:inline-block;width:8px;height:8px;
+            border-radius:50%;background:#888;vertical-align:middle;
+            margin-right:5px"></span><span id="wsTxt">connecting…</span>
+        </span>
+      </h3>
       <div class="body">
         <div class="row">
           <input id="subAddr" type="text" placeholder="phone / email / device token">
@@ -401,6 +408,90 @@ function logLine(html){
   const d=document.createElement('div'); d.innerHTML=html;
   $('#log').prepend(d);
 }
+
+/* Render a dispatch result -- {alert, matched, delivered}. Shared by the
+   WebSocket push path and the HTTP fallback so both look identical. */
+function renderAlert(d, label){
+  logLine(`<b>${esc(label||('ALERT '+d.alert.severity))}</b> ${esc(d.alert.area)}
+    — ${esc(d.alert.headline)}<br>matched ${d.matched} subscriber(s)`);
+  (d.delivered||[]).forEach(x=>logLine(`&nbsp;&nbsp;→ ${esc(x.channel)} ${esc(x.address)}
+    [${esc(x.lang)}/${esc(x.persona)}] ${esc(x.message)}`));
+}
+
+/* ------------------------------------------------- live push channel (ws) */
+/* The socket is the dissemination path the project is actually about: an
+   alert should reach a client that never asked. The Scan button therefore
+   goes over the socket and the result arrives as a pushed message.
+   If the socket will not open -- a proxy that blocks the upgrade, a network
+   that eats it -- everything degrades to the original HTTP calls rather than
+   breaking, and the indicator says so honestly. */
+let ws = null, wsTries = 0, wsTimer = null, wsPing = null;
+const WS_MAX_TRIES = 5;
+
+function setWs(colour, text, title){
+  const dot=$('#wsDot'), txt=$('#wsTxt'), ind=$('#wsInd');
+  if(dot) dot.style.background = colour;
+  if(txt) txt.textContent = text;
+  if(ind) ind.title = title || text;
+}
+function wsOpen(){ return ws && ws.readyState === WebSocket.OPEN; }
+function wsSend(obj){
+  if(!wsOpen()) return false;
+  try { ws.send(JSON.stringify(obj)); return true; }
+  catch(e){ return false; }
+}
+
+function connectWS(){
+  let url = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+          + location.host + '/ws/alerts';
+  /* Browsers cannot set headers on a WebSocket handshake, so the shared
+     secret rides in the query string. The server accepts either. */
+  if(DEMO_TOKEN) url += '?token=' + encodeURIComponent(DEMO_TOKEN);
+
+  try { ws = new WebSocket(url); }
+  catch(e){ setWs('#c0392b','offline','socket could not be created'); return; }
+
+  ws.onopen = ()=>{
+    wsTries = 0;
+    setWs('#27ae60','live','push channel connected');
+    /* Idle WebSockets are a favourite thing for proxies to reap. */
+    clearInterval(wsPing);
+    wsPing = setInterval(()=>wsSend({action:'ping'}), 30000);
+  };
+
+  ws.onmessage = ev=>{
+    let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
+    if(m.type === 'alert')      renderAlert(m);
+    else if(m.type === 'clear') logLine('<b>scan</b> no threshold exceeded · '
+                                        + esc(m.place||''));
+    else if(m.type === 'error') logLine('<b>error</b> ' + esc(m.message||''));
+    else if(m.type === 'hello') logLine('<span class="hint">push channel open · '
+                                        + m.subscriptions + ' subscription(s)</span>');
+  };
+
+  ws.onclose = ev=>{
+    clearInterval(wsPing);
+    /* 1008 is the server refusing the upgrade on a bad/missing token. That is
+       a configuration problem, not a flaky network -- retrying cannot fix it,
+       so say so and stop. */
+    if(ev.code === 1008){
+      setWs('#c0392b','unauthorised','server rejected the demo token');
+      logLine('<b>push channel refused</b> — invalid demo token; using HTTP');
+      return;
+    }
+    if(wsTries >= WS_MAX_TRIES){
+      setWs('#e67e22','http fallback',
+            'socket unavailable — buttons use HTTP instead');
+      return;
+    }
+    const delay = Math.min(1000 * Math.pow(2, wsTries++), 15000);
+    setWs('#e67e22','reconnecting…','retry in ' + Math.round(delay/1000) + 's');
+    clearTimeout(wsTimer); wsTimer = setTimeout(connectWS, delay);
+  };
+
+  ws.onerror = ()=>{ /* onclose always follows; handle it there. */ };
+}
+connectWS();
 $('#subBtn').onclick = async ()=>{
   const addr=$('#subAddr').value.trim()||('demo-'+Math.random().toString(36).slice(2,7));
   const p = new URLSearchParams({address:addr, place:$('#subPlace').value.trim()||'Puri',
@@ -414,22 +505,27 @@ $('#subBtn').onclick = async ()=>{
   refreshSys();
 };
 $('#scanBtn').onclick = async ()=>{
-  const r = await fetch(API+'/api/alerts/scan?place='+encodeURIComponent($('#subPlace').value||'Puri'),
+  const place = $('#subPlace').value.trim()||'Puri';
+  /* Preferred path: ask over the socket and let the answer be pushed back. */
+  if(wsSend({action:'scan', place:place})){
+    logLine('<span class="hint">scan requested over push channel…</span>');
+    return;
+  }
+  /* Fallback: the socket never opened or has dropped. */
+  logLine('<span class="hint">push channel unavailable — scanning over HTTP</span>');
+  const r = await fetch(API+'/api/alerts/scan?place='+encodeURIComponent(place),
     {method:'POST', headers:demoHeaders()});
   const d = await r.json();
+  if(d.detail) return logLine('<b>error</b> '+esc(d.detail));
   if(!d.fired) return logLine('<b>scan</b> no threshold exceeded · '+esc(d.place?.name||''));
-  logLine(`<b>ALERT ${esc(d.alert.severity)}</b> ${esc(d.alert.area)} — ${esc(d.alert.headline)}
-    <br>matched ${d.matched} subscriber(s)`);
-  d.delivered.forEach(x=>logLine(`&nbsp;&nbsp;→ ${esc(x.channel)} ${esc(x.address)}
-    [${esc(x.lang)}] ${esc(x.message)}`));
+  renderAlert(d);
 };
 $('#simBtn').onclick = async ()=>{
   const r = await fetch(API+'/api/alerts/simulate?place='+encodeURIComponent($('#subPlace').value||'Puri')
     +'&severity=red', {method:'POST', headers:demoHeaders()});
   const d = await r.json();
-  logLine(`<b>CAP RED</b> ${esc(d.alert.area)} — matched ${d.matched} subscriber(s)`);
-  d.delivered.forEach(x=>logLine(`&nbsp;&nbsp;→ ${esc(x.channel)} ${esc(x.address)}
-    [${esc(x.lang)}/${esc(x.persona)}] ${esc(x.message)}`));
+  if(d.detail) return logLine('<b>error</b> '+esc(d.detail));
+  renderAlert(d, 'CAP RED');
 };
 
 /* --------------------------------------------------------------- system */

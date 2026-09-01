@@ -32,14 +32,13 @@ app = FastAPI(
     description=("Conversational weather intelligence for India. "
                  "SIH26068 — Ministry of Earth Sciences / IMD."),
 )
-# CORS is read from CORS_ALLOW_ORIGINS (comma-separated). It defaults to "*"
-# so a fresh clone runs with no configuration, which is what the README
-# promises -- but on the deployment it is pinned to the deployed origin, so a
-# third-party page cannot drive this API from a visitor's browser.
-_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
+# CORS_ALLOW_ORIGINS wins; else Render's injected RENDER_EXTERNAL_URL pins the
+# deployment to its own origin; else "*" so a fresh clone runs unconfigured.
+# See Settings.allowed_origins().
+_origins = settings.allowed_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins or ["*"],
+    allow_origins=_origins,
     allow_methods=["*"],
     # X-Demo-Token must be allowed through preflight or the gated endpoints
     # become uncallable from the browser once an explicit origin list is set.
@@ -313,7 +312,19 @@ async def api_log(limit: int = 50):
 @app.websocket("/ws/alerts")
 async def ws_alerts(ws: WebSocket):
     """Live push channel. In production this is one of several fan-out
-    adapters; the browser client uses it to render alerts as they arrive."""
+    adapters; the browser client uses it to render alerts as they arrive.
+
+    Gated by the same DEMO_TOKEN as the HTTP dissemination endpoints, because
+    the "scan" action below calls alerts.dispatch() -- writing to the delivery
+    log and fanning out to every matching subscriber. Rejecting at the
+    handshake means an unauthorised client never gets a session at all, rather
+    than being refused per message.
+    """
+    if not security.websocket_authorized(ws):
+        # Close before accept: this fails the upgrade itself. 1008 is the
+        # WebSocket "policy violation" close code.
+        await ws.close(code=1008, reason="missing or invalid demo token")
+        return
     await ws.accept()
     await ws.send_json({"type": "hello", "ts": datetime.now(timezone.utc).isoformat(),
                         "subscriptions": len(alerts.SUBSCRIPTIONS)})

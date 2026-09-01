@@ -55,6 +55,34 @@ def require_demo_token(x_demo_token: str | None = Header(default=None)) -> None:
         )
 
 
+def websocket_authorized(ws) -> bool:
+    """Same gate as require_demo_token, for the /ws/alerts upgrade.
+
+    This exists because an auth check that covers one transport is not an auth
+    check. The socket's "scan" action reaches alerts.dispatch() -- the exact
+    capability guarded on POST /api/alerts/scan -- so leaving the socket open
+    while gating the HTTP route just moves the door, it does not lock it.
+
+    Browsers cannot set custom headers on a WebSocket handshake (the JS
+    WebSocket constructor takes a URL and subprotocols, nothing else), so the
+    token is accepted from the `token` query parameter as well as from an
+    X-Demo-Token header for non-browser clients. The query parameter is the
+    pragmatic option, with one real cost: URLs are the part of a request most
+    likely to end up in proxy and access logs, so this token should be treated
+    as log-exposed. It already is page-source-exposed by design, so this does
+    not widen the exposure -- but it is another reason a real channel needs a
+    signed, short-lived token instead.
+
+    Unset DEMO_TOKEN leaves the socket open, matching the HTTP behaviour so a
+    local clone still runs unconfigured.
+    """
+    expected = settings.demo_token
+    if not expected:
+        return True
+    supplied = ws.query_params.get("token") or ws.headers.get("x-demo-token") or ""
+    return bool(supplied) and hmac.compare_digest(supplied, expected)
+
+
 # ------------------------------------------------------------ rate limiting
 class SlidingWindowLimiter:
     """Fixed-capacity sliding window, keyed by client IP.

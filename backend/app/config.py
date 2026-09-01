@@ -55,10 +55,14 @@ class Settings(BaseSettings):
 
     # --- Deployment guards ----------------------------------------------
     # Comma-separated list of origins allowed to call the API from a browser.
-    # Defaults to "*" so a laptop clone still works with no configuration;
-    # set it to the deployed origin on anything public. Example:
-    #   CORS_ALLOW_ORIGINS=https://user-weathergpt.hf.space
-    cors_allow_origins: str = "*"
+    # Resolution order (see allowed_origins() below):
+    #   1. CORS_ALLOW_ORIGINS, if set  -- always wins
+    #   2. RENDER_EXTERNAL_URL, which Render injects as the service's full
+    #      https:// URL -- so the deployment is pinned to itself with no
+    #      manual step and no chicken-and-egg on first deploy
+    #   3. "*", so a laptop clone still runs unconfigured
+    cors_allow_origins: str = ""
+    render_external_url: str = ""
 
     # Shared secret for the dissemination endpoints (simulate / subscribe /
     # scan). Unset = gate open, which is what keeps local dev frictionless.
@@ -88,6 +92,23 @@ class Settings(BaseSettings):
         env_file = os.getenv("WEATHERGPT_ENV_FILE", ".env")
         env_prefix = ""
         extra = "ignore"
+
+
+    def allowed_origins(self) -> list[str]:
+        """Browser origins permitted to call this API.
+
+        Explicit configuration beats inference: if CORS_ALLOW_ORIGINS is set it
+        is used verbatim, including a deliberate "*". Otherwise, on Render,
+        RENDER_EXTERNAL_URL pins the deployment to its own origin. Off-platform
+        with nothing configured, fall back to "*" -- the local-dev default the
+        README promises.
+        """
+        if self.cors_allow_origins.strip():
+            return [o.strip() for o in self.cors_allow_origins.split(",")
+                    if o.strip()]
+        if self.render_external_url.strip():
+            return [self.render_external_url.strip().rstrip("/")]
+        return ["*"]
 
 
 @lru_cache

@@ -1,18 +1,23 @@
-# Keeps the Hugging Face Space awake.
+# Keeps the Render free web service awake.
 #
-# Free CPU-Basic Spaces sleep after a period of inactivity (HF documents this
-# as "go to sleep and stop executing after a period of time if unused"; the
-# commonly observed window is 48 hours, not minutes). A slept Space still
-# serves, but the first request pays a container cold start -- which on demo
-# day is exactly the failure mode we are trying to avoid.
+# Render spins a free web service down after 15 minutes without inbound
+# traffic and takes about a minute to wake it, which is exactly the cold start
+# a judge should never sit through. This pings /api/health every 10 minutes.
 #
-# This pings /api/health every 10 minutes, as specified. That is far more often
-# than the sleep window strictly requires; it is cheap, it keeps the response
-# cache warm, and it means the Space is never the thing that is cold when the
-# judges load it.
+# ---------------------------------------------------------------------------
+# ENABLE THIS ONLY AROUND DEMO DATES.
+#
+# The free plan grants 750 instance-hours per workspace per calendar month. A
+# service kept permanently awake consumes roughly 730 of them -- about 97% of
+# the allowance for this one service, leaving nothing for a second and
+# suspending the service partway through a month if left on continuously.
+#
+#   gh workflow enable  keepalive.yml    # day before the demo
+#   gh workflow disable keepalive.yml    # immediately after
+# ---------------------------------------------------------------------------
 #
 # SETUP: add repository variable SPACE_URL, e.g.
-#   https://<user>-weathergpt.hf.space
+#   https://weathergpt.onrender.com
 # Settings -> Secrets and variables -> Actions -> Variables -> New variable.
 # No token is needed: /api/health is public and ungated.
 name: keepalive
@@ -39,8 +44,8 @@ jobs:
           code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 60 "$URL/api/health")
           echo "GET $URL/api/health -> $code"
           cat /tmp/body; echo
-          # A sleeping Space can take a while on the first hit, so one retry
-          # before we call it a failure.
+          # A spun-down service takes ~1 min to wake, so one retry before we
+          # call it a failure.
           if [ "$code" != "200" ]; then
             echo "retrying once after cold start..."
             sleep 30

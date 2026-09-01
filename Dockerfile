@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# Hugging Face Spaces runs the container as UID 1000. Create that user before
-# any COPY and own every copied file, otherwise the app cannot read its own
-# code. https://huggingface.co/docs/hub/spaces-sdks-docker#permissions
+# Run as a non-root user. Not required by Render, but there is no reason for a
+# public web service to run as root, and creating the user before any COPY (with
+# --chown below) keeps ownership correct without a recursive chown layer.
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
@@ -20,11 +20,11 @@ COPY --chown=user frontend/ ./frontend/
 
 WORKDIR $HOME/app/backend
 
-# $PORT is honoured whenever the platform injects one; 8000 is the local
-# default. Note that HF Spaces does NOT inject $PORT -- it routes to the port
-# declared as `app_port:` in the README.md YAML block, which is pinned to 8000
-# to match this default. Keep the two in sync.
-ENV PORT=8000
+# Render injects $PORT (default 10000) and the shell-form CMD below expands it.
+# The 8000 default is for local `docker run` only -- do NOT pin PORT in
+# render.yaml, or the app will bind a port Render is not routing to.
+# No ENV PORT here: an ENV default would mask the platform's value only if the
+# platform did not set it, which is exactly what ${PORT:-8000} already handles.
 EXPOSE 8000
 
 # Same variable as the CMD, so the check follows the port the app actually
