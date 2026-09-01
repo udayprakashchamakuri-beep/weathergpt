@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeatherGPT — Conversational Weather Intelligence</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111c30; --panel-2:#16233b; --line:#22334f;
+    --ink:#e8eefc; --muted:#8ea3c4; --accent:#38bdf8; --accent-2:#0ea5e9;
+    --green:#22c55e; --yellow:#eab308; --orange:#f97316; --red:#ef4444;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 700px at 80% -10%, #17325a 0%, var(--bg) 55%);
+    color:var(--ink); font:15px/1.55 "Inter",system-ui,-apple-system,"Segoe UI",
+    "Noto Sans","Noto Sans Devanagari","Noto Sans Telugu","Noto Sans Tamil",
+    "Noto Sans Bengali",sans-serif; min-height:100vh;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; padding:14px 22px;
+    border-bottom:1px solid var(--line); background:rgba(11,18,32,.85);
+    backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; flex-wrap:wrap;
+  }
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;letter-spacing:-.02em}
+  .logo .dot{width:26px;height:26px;border-radius:8px;
+    background:conic-gradient(from 210deg,var(--accent),#818cf8,var(--accent));
+    box-shadow:0 0 22px rgba(56,189,248,.55)}
+  .ps{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);
+    border:1px solid #1e4e6b;background:#0d2536;padding:5px 8px;border-radius:6px}
+  .spacer{flex:1}
+  select,button,input{font:inherit;color:var(--ink)}
+  select,input[type=text]{background:var(--panel-2);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px}
+  button{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    padding:8px 12px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);background:#1b2b47}
+  button.primary{background:linear-gradient(180deg,var(--accent),var(--accent-2));
+    border-color:transparent;color:#04121e;font-weight:650}
+  button.primary:hover{filter:brightness(1.08)}
+
+  .wrap{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,.95fr);
+    gap:18px;padding:18px 22px 28px;max-width:1480px;margin:0 auto}
+  @media (max-width:1020px){.wrap{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden}
+  .card h3{margin:0;padding:12px 16px;font-size:13px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px}
+  .card .body{padding:14px 16px}
+
+  #chat{height:min(62vh,640px);overflow-y:auto;padding:16px;display:flex;
+    flex-direction:column;gap:14px;scroll-behavior:smooth}
+  .msg{max-width:88%;padding:11px 14px;border-radius:13px;white-space:pre-wrap;
+    word-wrap:break-word;animation:rise .22s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+  .me{align-self:flex-end;background:linear-gradient(180deg,#1f4f74,#1a3f5e);
+    border:1px solid #2b6588;border-bottom-right-radius:4px}
+  .bot{align-self:flex-start;background:var(--panel-2);border:1px solid var(--line);
+    border-bottom-left-radius:4px;max-width:94%}
+  .bot.sev-yellow{border-left:4px solid var(--yellow)}
+  .bot.sev-orange{border-left:4px solid var(--orange)}
+  .bot.sev-red{border-left:4px solid var(--red);
+    box-shadow:0 0 0 1px rgba(239,68,68,.25),0 8px 26px rgba(239,68,68,.12)}
+  .bot.sev-green{border-left:4px solid var(--green)}
+
+  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:9px;
+    border-top:1px dashed var(--line)}
+  .chip{font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);
+    background:#0e1a2c;border:1px solid var(--line);padding:5px 7px;border-radius:6px}
+  .chip.auth{color:#7ee0a5;border-color:#1d5136;background:#0d2318}
+  .chip.model{color:#9dbef0;border-color:#26406b;background:#0e1a2f}
+  .chip.warn{color:#f7c06a;border-color:#5a4318;background:#241c0c}
+
+  .advisory{margin-top:11px;background:#0e1a2c;border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px}
+  .advisory .h{font-weight:650;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .advisory ul{margin:0;padding-left:17px}
+  .advisory li{margin:3px 0}
+  .pill{font:700 10px/1 ui-monospace,monospace;padding:4px 7px;border-radius:5px;
+    text-transform:uppercase;letter-spacing:.05em}
+  .pill.green{background:#0f3123;color:#6ee7a8} .pill.yellow{background:#3a3110;color:#f5d372}
+  .pill.orange{background:#3f240c;color:#fdba74} .pill.red{background:#3f1414;color:#fca5a5}
+  .pill.none{background:#1b2740;color:var(--muted)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 16px 12px}
+  .chips button{font-size:12.5px;padding:6px 10px;border-radius:20px;color:var(--muted)}
+  .chips button:hover{color:var(--ink)}
+
+  .composer{display:flex;gap:9px;padding:12px 16px;border-top:1px solid var(--line);
+    background:var(--panel-2)}
+  .composer input{flex:1;background:#0d1729;border:1px solid var(--line);
+    border-radius:11px;padding:11px 13px;outline:none}
+  .composer input:focus{border-color:var(--accent)}
+  #mic.rec{background:var(--red);border-color:var(--red);animation:pulse 1.1s infinite}
+  @keyframes pulse{50%{opacity:.55}}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:5px 0;border-bottom:1px solid #1a2942;color:var(--muted)}
+  td.v{text-align:right;color:var(--ink);font-weight:600;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  canvas{width:100%;height:150px;display:block}
+
+  .log{max-height:190px;overflow-y:auto;font:11.5px/1.5 ui-monospace,monospace}
+  .log div{padding:7px 0;border-bottom:1px solid #1a2942;color:var(--muted)}
+  .log b{color:var(--ink);font-weight:600}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .row > *{flex:1;min-width:0}
+  .row button{flex:0 0 auto}
+  .hint{color:var(--muted);font-size:12px;margin:8px 0 0}
+  .stat{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;
+    color:var(--muted)}
+  .stat b{color:var(--ink);font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="dot"></span> WeatherGPT</div>
+  <span class="ps">SIH26068 · MoES / IMD</span>
+  <div class="spacer"></div>
+  <select id="lang" title="Response language">
+    <option value="en">English</option><option value="hi">हिन्दी</option>
+    <option value="te">తెలుగు</option><option value="ta">தமிழ்</option>
+    <option value="bn">বাংলা</option><option value="mr">मराठी</option>
+  </select>
+  <select id="persona" title="Who is asking">
+    <option value="general">General public</option>
+    <option value="farmer">Farmer</option>
+    <option value="fisherman">Fisherman</option>
+    <option value="aviation">Aviation</option>
+    <option value="urban">City / disaster ops</option>
+    <option value="researcher">Researcher</option>
+  </select>
+  <button id="geo" title="Use my location">📍 Locate</button>
+</header>
+
+<div class="wrap">
+  <!-- ------------------------------------------------ conversation -->
+  <section class="card">
+    <h3>Conversation <span id="status" style="color:var(--muted);
+      text-transform:none;letter-spacing:0;font-size:11px"></span></h3>
+    <div id="chat"></div>
+    <div class="chips" id="chips"></div>
+    <div class="composer">
+      <button id="mic" title="Speak (Web Speech API)">🎙</button>
+      <input id="q" type="text" placeholder="Ask in any language — e.g. kal Guntur me barish hogi kya?" autocomplete="off">
+      <button class="primary" id="send">Ask</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ side panels -->
+  <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+    <section class="card">
+      <h3>Live conditions <span id="placeName" style="color:var(--accent);
+        text-transform:none;letter-spacing:0"></span></h3>
+      <div class="body">
+        <table id="obs"><tr><td>Ask a question to populate</td><td class="v">—</td></tr></table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Forecast / trend</h3>
+      <div class="body"><canvas id="chart" width="620" height="150"></canvas>
+        <p class="hint" id="chartCap">Bars = rainfall (mm) · line = temperature (°C)</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Early-warning dissemination</h3>
+      <div class="body">
+        <div class="row">
+          <input id="subAddr" type="text" placeholder="phone / email / device token">
+          <input id="subPlace" type="text" placeholder="district" value="Puri">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <select id="subChannel">
+            <option value="sms">SMS</option><option value="ivr">IVR call</option>
+            <option value="push">App push</option><option value="whatsapp">WhatsApp</option>
+          </select>
+          <button id="subBtn">Subscribe</button>
+          <button id="scanBtn" title="Run the threshold monitor now">Scan</button>
+          <button id="simBtn" title="Inject a synthetic CAP alert">Simulate cyclone</button>
+        </div>
+        <p class="hint">Subscriptions are geofenced. An incoming alert is matched
+          spatially, then rendered per subscriber in their language and role
+          before fan-out.</p>
+        <div class="log" id="log" style="margin-top:10px"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>System</h3>
+      <div class="body" id="sys"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const API = location.origin;
+/* Injected by GET / at page load (see main.py index()). Empty string when
+   DEMO_TOKEN is unset, i.e. local dev -- the server leaves the gate open
+   then, so sending no header is correct. */
+const DEMO_TOKEN = window.__DEMO_TOKEN__ || '';
+const demoHeaders = () => DEMO_TOKEN ? {'X-Demo-Token': DEMO_TOKEN} : {};
+const $ = s => document.querySelector(s);
+const chat = $('#chat');
+let coords = null, lastChart = null;
+
+const SPEECH_LANG = {en:'en-IN',hi:'hi-IN',te:'te-IN',ta:'ta-IN',bn:'bn-IN',mr:'mr-IN'};
+
+const DEMOS = [
+  "Weather in Hyderabad right now",
+  "kal Guntur me barish hogi kya?",
+  "repu Warangal lo vaana padutunda?",
+  "Should I spray pesticide on my cotton field in Nizamabad this week?",
+  "Is it safe to go fishing from Nagapattinam tomorrow?",
+  "Any warning for Puri?",
+  "How has July rainfall in Cherrapunji changed over 40 years?",
+  "Air quality in Delhi",
+];
+
+function chips(list){
+  $('#chips').innerHTML = '';
+  list.forEach(t=>{
+    const b=document.createElement('button');
+    b.textContent=t; b.onclick=()=>{ $('#q').value=t; send(); };
+    $('#chips').appendChild(b);
+  });
+}
+chips(DEMOS);
+
+function bubble(text, who, cls=''){
+  const d=document.createElement('div');
+  d.className='msg '+who+' '+cls;
+  d.textContent=text;
+  chat.appendChild(d); chat.scrollTop=chat.scrollHeight;
+  return d;
+}
+
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function render(d){
+  const el = bubble(d.answer, 'bot', 'sev-'+(d.severity||'none'));
+
+  if (d.advisory && d.advisory.actions?.length){
+    const a=document.createElement('div'); a.className='advisory';
+    const dup = (d.answer||'').includes(d.advisory.headline);
+    a.innerHTML = `<div class="h"><span class="pill ${d.advisory.severity}">${d.advisory.severity}</span>`
+      + (dup ? 'What to do' : esc(d.advisory.headline)) + `</div><ul>`
+      + d.advisory.actions.map(x=>`<li>${esc(x)}</li>`).join('') + `</ul>`
+      + (d.advisory.reason ? `<div class="chip" style="margin-top:8px;display:inline-block">
+          triggered by: ${esc(d.advisory.reason)}</div>` : '');
+    el.appendChild(a);
+  }
+
+  const meta=document.createElement('div'); meta.className='meta';
+  const add=(t,c='')=>{const s=document.createElement('span');s.className='chip '+c;
+    s.textContent=t;meta.appendChild(s);};
+  add(d.intent);
+  if (d.persona && d.persona!=='general') add(d.persona);
+  add(d.latency_ms+' ms'+(d.cached?' · cached':''));
+  (d.sources||[]).forEach(s=>add(s.source+' · '+s.product, s.authoritative?'auth':'model'));
+  (d.degraded||[]).forEach(x=>add('degraded: '+x,'warn'));
+  el.appendChild(meta);
+
+  if (d.followups?.length) chips(d.followups.concat(DEMOS.slice(0,3)));
+  if (d.chart) drawChart(d.chart);
+  if (d.place) $('#placeName').textContent = '· '+d.place.name;
+  if (d.facts?.length) fillObs(d.facts);
+  speak(d.answer, d.lang);
+}
+
+function fillObs(facts){
+  const rows = facts.filter(f=>f.label).slice(0,9).map(f=>
+    `<tr><td>${esc(f.label)}</td><td class="v">${esc(f.value)}${f.unit?' '+f.unit:''}</td></tr>`);
+  $('#obs').innerHTML = rows.join('') || '<tr><td>—</td><td class="v">—</td></tr>';
+}
+
+/* ------------------------------------------------------- chart (no deps) */
+function drawChart(c){
+  lastChart=c;
+  const cv=$('#chart'), ctx=cv.getContext('2d');
+  const W=cv.width=cv.clientWidth*2, H=cv.height=300;
+  ctx.scale(1,1); ctx.clearRect(0,0,W,H);
+  const pad={l:44,r:14,t:16,b:34};
+  const labels=c.labels||[];
+  const bars = c.rain || c.precip || [];
+  const line = c.tmax || c.temp || [];
+  if(!labels.length) return;
+
+  const bMax = Math.max(1, ...bars.map(v=>v||0));
+  const lVals = line.filter(v=>v!=null);
+  const lMin = Math.min(...lVals), lMax = Math.max(...lVals);
+  const span = (lMax-lMin) || 1;
+  const iw = W-pad.l-pad.r, ih = H-pad.t-pad.b;
+  const x = i => pad.l + iw*(i+0.5)/labels.length;
+
+  ctx.strokeStyle='#22334f'; ctx.lineWidth=1; ctx.font='18px ui-monospace,monospace';
+  ctx.fillStyle='#8ea3c4';
+  for(let g=0; g<=3; g++){
+    const y = pad.t + ih*g/3;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(((bMax*(3-g)/3).toFixed(bMax<10?1:0)), 4, y+6);
+  }
+
+  const bw = Math.max(6, iw/labels.length*0.5);
+  bars.forEach((v,i)=>{
+    const h = ih*((v||0)/bMax);
+    const grad=ctx.createLinearGradient(0,H-pad.b-h,0,H-pad.b);
+    grad.addColorStop(0,'#38bdf8'); grad.addColorStop(1,'rgba(56,189,248,.18)');
+    ctx.fillStyle=grad;
+    ctx.fillRect(x(i)-bw/2, H-pad.b-h, bw, h);
+  });
+
+  ctx.strokeStyle='#fbbf24'; ctx.lineWidth=3; ctx.beginPath();
+  line.forEach((v,i)=>{
+    if(v==null) return;
+    const y = pad.t + ih*(1-(v-lMin)/span)*0.82 + ih*0.06;
+    i? ctx.lineTo(x(i),y) : ctx.moveTo(x(i),y);
+  });
+  ctx.stroke();
+  ctx.fillStyle='#fbbf24';
+  line.forEach((v,i)=>{
+    if(v==null) return;
+    const y = pad.t + ih*(1-(v-lMin)/span)*0.82 + ih*0.06;
+    ctx.beginPath(); ctx.arc(x(i),y,4,0,7); ctx.fill();
+  });
+
+  ctx.fillStyle='#8ea3c4'; ctx.textAlign='center';
+  const step = Math.ceil(labels.length/8);
+  labels.forEach((l,i)=>{ if(i%step===0) ctx.fillText(l, x(i), H-10); });
+  ctx.textAlign='left';
+
+  $('#chartCap').textContent = c.type==='climate'
+    ? 'Bars = annual rainfall (mm) · line = mean daily max (°C) · ERA5 reanalysis'
+    : c.type==='hourly' ? 'Bars = hourly rainfall (mm) · line = temperature (°C)'
+    : 'Bars = daily rainfall (mm) · line = daily max temperature (°C)';
+}
+addEventListener('resize', ()=> lastChart && drawChart(lastChart));
+
+/* --------------------------------------------------------------- speech */
+let recog=null, recording=false;
+function initSpeech(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ $('#mic').title='Speech recognition not supported in this browser'; return; }
+  recog = new SR(); recog.interimResults=false; recog.maxAlternatives=1;
+  recog.onresult = e => { $('#q').value = e.results[0][0].transcript; send(); };
+  recog.onend = () => { recording=false; $('#mic').classList.remove('rec'); };
+}
+initSpeech();
+$('#mic').onclick = ()=>{
+  if(!recog){ alert('Use Chrome or Edge for voice input. Production uses Bhashini ASR server-side, which needs no browser support.'); return; }
+  if(recording){ recog.stop(); return; }
+  recog.lang = SPEECH_LANG[$('#lang').value] || 'en-IN';
+  recog.start(); recording=true; $('#mic').classList.add('rec');
+};
+function speak(text, lang){
+  if(!window.speechSynthesis || !$('#ttsOn')?.checked) return;
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang = SPEECH_LANG[lang]||'en-IN'; speechSynthesis.speak(u);
+}
+
+/* ----------------------------------------------------------------- chat */
+async function send(){
+  const text = $('#q').value.trim();
+  if(!text) return;
+  bubble(text,'me'); $('#q').value='';
+  $('#status').textContent = 'thinking…';
+  const t0=performance.now();
+  try{
+    const r = await fetch(API+'/api/chat',{
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({message:text, lang:$('#lang').value,
+        persona:$('#persona').value, lat:coords?.lat, lon:coords?.lon})
+    });
+    const d = await r.json();
+    if(d.detail){ bubble('Error: '+d.detail,'bot','sev-red'); }
+    else render(d);
+    $('#status').textContent = 'round trip '+Math.round(performance.now()-t0)+' ms';
+  }catch(e){
+    bubble('Could not reach the WeatherGPT API. Is the server running?','bot','sev-red');
+    $('#status').textContent='';
+  }
+}
+$('#send').onclick = send;
+$('#q').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
+
+$('#geo').onclick = ()=>{
+  if(!navigator.geolocation) return alert('Geolocation unavailable');
+  navigator.geolocation.getCurrentPosition(p=>{
+    coords={lat:p.coords.latitude, lon:p.coords.longitude};
+    $('#geo').textContent='📍 '+coords.lat.toFixed(2)+', '+coords.lon.toFixed(2);
+  }, ()=>alert('Location permission denied'));
+};
+
+/* --------------------------------------------------------------- alerts */
+function logLine(html){
+  const d=document.createElement('div'); d.innerHTML=html;
+  $('#log').prepend(d);
+}
+$('#subBtn').onclick = async ()=>{
+  const addr=$('#subAddr').value.trim()||('demo-'+Math.random().toString(36).slice(2,7));
+  const p = new URLSearchParams({address:addr, place:$('#subPlace').value.trim()||'Puri',
+    channel:$('#subChannel').value, lang:$('#lang').value, persona:$('#persona').value});
+  const r = await fetch(API+'/api/alerts/subscribe?'+p,
+    {method:'POST', headers:demoHeaders()});
+  const d = await r.json();
+  if(d.detail) return logLine('<b>error</b> '+esc(d.detail));
+  logLine(`<b>subscribed</b> ${esc(d.subscription.address)} · ${esc(d.place.name)}
+    · ${esc(d.subscription.channel)}/${esc(d.subscription.lang)}/${esc(d.subscription.persona)}`);
+  refreshSys();
+};
+$('#scanBtn').onclick = async ()=>{
+  const r = await fetch(API+'/api/alerts/scan?place='+encodeURIComponent($('#subPlace').value||'Puri'),
+    {method:'POST', headers:demoHeaders()});
+  const d = await r.json();
+  if(!d.fired) return logLine('<b>scan</b> no threshold exceeded · '+esc(d.place?.name||''));
+  logLine(`<b>ALERT ${esc(d.alert.severity)}</b> ${esc(d.alert.area)} — ${esc(d.alert.headline)}
+    <br>matched ${d.matched} subscriber(s)`);
+  d.delivered.forEach(x=>logLine(`&nbsp;&nbsp;→ ${esc(x.channel)} ${esc(x.address)}
+    [${esc(x.lang)}] ${esc(x.message)}`));
+};
+$('#simBtn').onclick = async ()=>{
+  const r = await fetch(API+'/api/alerts/simulate?place='+encodeURIComponent($('#subPlace').value||'Puri')
+    +'&severity=red', {method:'POST', headers:demoHeaders()});
+  const d = await r.json();
+  logLine(`<b>CAP RED</b> ${esc(d.alert.area)} — matched ${d.matched} subscriber(s)`);
+  d.delivered.forEach(x=>logLine(`&nbsp;&nbsp;→ ${esc(x.channel)} ${esc(x.address)}
+    [${esc(x.lang)}/${esc(x.persona)}] ${esc(x.message)}`));
+};
+
+/* --------------------------------------------------------------- system */
+async function refreshSys(){
+  try{
+    const d = await (await fetch(API+'/api/health')).json();
+    $('#sys').innerHTML =
+      `<div class="stat"><span>IMD API</span><b>${esc(d.sources.imd_api)}</b></div>
+       <div class="stat"><span>NWP</span><b>${esc(d.sources.nwp)}</b></div>
+       <div class="stat"><span>LLM router</span><b>${esc(d.sources.llm_router)}</b></div>
+       <div class="stat"><span>Language layer</span><b>${esc(d.sources.language)}</b></div>
+       <div class="stat"><span>Cache hit rate</span><b>${(d.cache.response.hit_rate*100).toFixed(0)}%</b></div>
+       <div class="stat"><span>Subscriptions</span><b>${d.subscriptions}</b></div>
+       <div class="stat"><span>Languages</span><b>${d.templated_languages.length} templated / ${d.languages.length} supported</b></div>
+       <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:10px">
+         <input type="checkbox" id="ttsOn"> Speak answers aloud (TTS)</label>`;
+  }catch(e){ $('#sys').textContent = 'API unreachable'; }
+}
+refreshSys(); setInterval(refreshSys, 20000);
+
+bubble("Namaste. Ask me about weather, forecasts, warnings, air quality or long-term climate — in English, Hindi, Telugu, Tamil, Bengali or Marathi, typed or spoken.\n\nEvery number I give you carries its source and issue time. If a source is down I will tell you, not guess.", 'bot');
+</script>
+</body>
+</html>

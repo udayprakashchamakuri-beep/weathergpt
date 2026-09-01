@@ -1,0 +1,50 @@
+# Keeps the Hugging Face Space awake.
+#
+# Free CPU-Basic Spaces sleep after a period of inactivity (HF documents this
+# as "go to sleep and stop executing after a period of time if unused"; the
+# commonly observed window is 48 hours, not minutes). A slept Space still
+# serves, but the first request pays a container cold start -- which on demo
+# day is exactly the failure mode we are trying to avoid.
+#
+# This pings /api/health every 10 minutes, as specified. That is far more often
+# than the sleep window strictly requires; it is cheap, it keeps the response
+# cache warm, and it means the Space is never the thing that is cold when the
+# judges load it.
+#
+# SETUP: add repository variable SPACE_URL, e.g.
+#   https://<user>-weathergpt.hf.space
+# Settings -> Secrets and variables -> Actions -> Variables -> New variable.
+# No token is needed: /api/health is public and ungated.
+name: keepalive
+
+on:
+  schedule:
+    # GitHub cron is UTC and best-effort -- runs can be delayed under load,
+    # which is fine for a keep-alive but means this is not a scheduler you
+    # should ever hang correctness on.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          URL="${{ vars.SPACE_URL }}"
+          if [ -z "$URL" ]; then
+            echo "SPACE_URL repository variable is not set; nothing to ping."
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 60 "$URL/api/health")
+          echo "GET $URL/api/health -> $code"
+          cat /tmp/body; echo
+          # A sleeping Space can take a while on the first hit, so one retry
+          # before we call it a failure.
+          if [ "$code" != "200" ]; then
+            echo "retrying once after cold start..."
+            sleep 30
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 90 "$URL/api/health")
+            echo "retry -> $code"; cat /tmp/body; echo
+          fi
+          [ "$code" = "200" ]

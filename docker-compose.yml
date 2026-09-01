@@ -1,0 +1,38 @@
+# Local stack. The demo runs on the `api` service alone; the rest are the
+# production dependencies wired up so the same compose file grows into the
+# deployment described in ARCHITECTURE.md.
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    # optional: the stack starts with no .env at all
+    env_file:
+      - path: backend/.env
+        required: false
+    depends_on: [redis]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports: ["6379:6379"]
+
+  # Spatial + time-series store: district/subdivision boundaries, subscription
+  # geofences, station metadata, and the climate series behind trend queries.
+  postgis:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_PASSWORD: weathergpt
+      POSTGRES_DB: weathergpt
+    ports: ["5432:5432"]
+    volumes: [pgdata:/home/postgres/pgdata/data]
+
+  # WIS2.0 ingest. Subscribes to the WMO Global Broker and republishes
+  # normalised notifications onto the internal bus.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes: [./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
+
+volumes:
+  pgdata:

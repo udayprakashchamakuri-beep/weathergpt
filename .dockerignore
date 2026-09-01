@@ -1,0 +1,24 @@
+# Build context hygiene. Anything here stays out of the image -- which also
+# means it can never be baked into a public Space layer.
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.pytest_cache/
+tests/
+.env
+.env.*
+!.env.example
+backend/.env
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.bak
+.github/

@@ -1,0 +1,14 @@
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Never commit real configuration -- .env.example is the only tracked template.
+.env
+.env.*
+!.env.example
+backend/.env
+*.log
+.DS_Store
+*.bak
