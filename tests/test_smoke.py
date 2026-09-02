@@ -98,10 +98,35 @@ check("analysis provenance carries the source's own valid time",
 
 nums_in_answer = {t for t in d["answer_en"].replace("°C", " ").replace("%", " ")
                   .replace(",", " ").split() if t.replace(".", "").isdigit()}
-fact_values = {str(f["value"]) for f in d["facts"]}
-orphans = {n for n in nums_in_answer
-           if not any(n in v or v in n for v in fact_values)}
-check("no orphan numerals in the answer", not orphans, f"orphans={orphans}")
+
+
+def rendered_forms(v):
+    """Every string the renderer could legitimately print for a fact value.
+
+    tools._fmt() formats to 0 or 1 decimal places, so a wind of 93.9 km/h is
+    rendered "94" in the answer. The previous check compared the rendered
+    string against the raw value with a substring test, so "94" vs "93.9"
+    looked like an ungrounded numeral. That is a false positive on the check
+    that guards the project's headline claim -- the most expensive kind,
+    because it trains everyone to ignore the one test that must be believed.
+    """
+    forms = {str(v)}
+    if isinstance(v, bool):
+        return forms
+    if isinstance(v, (int, float)):
+        forms |= {f"{v:.0f}", f"{v:.1f}"}
+    return forms
+
+
+fact_forms = set()
+for f in d["facts"]:
+    fact_forms |= rendered_forms(f["value"])
+# Exact match against the rendered forms, not a substring test: substring
+# matching also passes "1" against a fact of "1004.7", which is the opposite
+# error -- an orphan that slips through.
+orphans = {n for n in nums_in_answer if n not in fact_forms}
+check("no orphan numerals in the answer", not orphans,
+      f"orphans={orphans} facts={sorted(fact_forms)}")
 
 # --------------------------------------------- 3. LLM rewrite guardrail
 print("\n[3] numeral-preservation guard")

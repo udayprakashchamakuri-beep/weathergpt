@@ -20,6 +20,33 @@ def _fact(key, value, prov: Provenance, unit=None, label=None) -> Fact:
     return Fact(key=key, value=value, unit=unit, label=label, provenance=prov)
 
 
+def _gust_degradation(cur: dict | None, days: list[dict],
+                      prov: Provenance) -> list[str]:
+    """Declare it when wind thresholds are being evaluated on a substitute.
+
+    Not every provider publishes wind gusts -- MET Norway publishes none for
+    most Indian points -- and advisory.py silently falls back to sustained
+    wind when a gust is missing. Sustained wind is always lower than the gust
+    it stands in for, so every gust threshold fires LATER than it should.
+
+    On a small-craft go/no-go that is an under-warning, which is the dangerous
+    direction to be wrong in and precisely the failure mode this project
+    exists to prevent. The fallback itself is reasonable; doing it without
+    saying so is not. Returned in the response's `degraded` array so the
+    caveat travels with the answer.
+    """
+    missing_current = cur is not None and cur.get("wind_gust_kmh") is None
+    missing_days = any(d.get("gust_max_kmh") is None for d in (days or [])[:3])
+    if not (missing_current or missing_days):
+        return []
+    return [
+        f"No wind-gust data from {prov.source} for this location. Wind "
+        "thresholds (including the 34 kt small-craft go/no-go) are evaluated "
+        "on sustained wind instead, which is lower than gusts and may "
+        "UNDER-WARN. Cross-check the IMD port bulletin before sailing."
+    ]
+
+
 def _fmt(v, nd=0):
     if v is None:
         return "—"
@@ -52,9 +79,16 @@ async def answer_current(q: ParsedQuery, place: Place) -> dict:
     text_loc = i18n.t("current", q.lang, **slots)
 
     if (cur.get("precip_mm") or 0) > 0:
-        text_en += f" Rain in the last hour: {cur['precip_mm']} mm."
+        # Through the slot template, in both languages -- not appended to the
+        # English string. The value is carried as a Fact below, so it is
+        # grounded like every other numeral in the answer.
+        rain_slots = {"rain": _fmt(cur["precip_mm"], 1)}
+        text_en += " " + i18n.t("rain_last_hour", "en", **rain_slots)
+        text_loc += " " + i18n.t("rain_last_hour", q.lang, **rain_slots)
 
     a = adv.build(q.persona, fc["days"], cur)
+
+    degraded = _gust_degradation(cur, fc["days"], prov)
 
     facts = [
         _fact("temp_c", cur["temp_c"], prov, "°C", "Temperature"),
@@ -64,12 +98,13 @@ async def answer_current(q: ParsedQuery, place: Place) -> dict:
         _fact("wind_gust_kmh", cur["wind_gust_kmh"], prov, "km/h", "Gusts"),
         _fact("pressure_hpa", cur["pressure_hpa"], prov, "hPa", "Pressure"),
         _fact("cloud_pct", cur["cloud_pct"], prov, "%", "Cloud cover"),
+        _fact("precip_mm", cur["precip_mm"], prov, "mm", "Rain (last hour)"),
         _fact("condition", cond_en, prov, None, "Condition"),
     ]
     return {
         "en": text_en, "loc": text_loc, "facts": facts, "advisory": a,
         "severity": a.severity, "sources": [prov, fc["provenance"]],
-        "chart": _hourly_chart(fc),
+        "chart": _hourly_chart(fc), "degraded": degraded,
     }
 
 
@@ -137,6 +172,7 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
         "en": lead_en + "\n" + "\n".join(lines_en),
         "loc": lead_loc + "\n" + "\n".join(lines_loc),
         "facts": facts, "advisory": a, "severity": sev,
+        "degraded": _gust_degradation(None, days, prov),
         "sources": [prov],
         "chart": {
             "type": "daily",
@@ -174,6 +210,7 @@ async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
                         "impact thresholds instead of reading official warnings")
 
     fc = await nwp.forecast(place.lat, place.lon, days=5)
+    degraded += _gust_degradation(None, fc["days"], fc["provenance"])
     sources.append(fc["provenance"])
 
     hits = []
@@ -229,6 +266,7 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
     ]
     return {"en": f"{head_en}{body}", "loc": f"{head_loc}{body}",
             "facts": facts, "advisory": a, "severity": a.severity,
+            "degraded": _gust_degradation(cur, fc["days"], fc["provenance"]),
             "sources": [cur["provenance"], fc["provenance"]],
             "chart": {"type": "daily",
                       "labels": [d["date"][5:] for d in fc["days"][:7]],

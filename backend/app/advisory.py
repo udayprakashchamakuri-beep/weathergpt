@@ -176,6 +176,12 @@ def farmer(days: list[dict]) -> Advisory:
 def fisherman(days: list[dict]) -> Advisory:
     d0 = days[0] if days else {}
     gust = d0.get("gust_max_kmh") or d0.get("wind_max_kmh") or 0.0
+    # Whether the number below is a real gust or a stand-in. The thresholds
+    # are unchanged; what changes is that a substituted value is declared.
+    # Sustained wind is always lower than the gust it replaces, so every
+    # threshold here fires LATER than it should -- an under-warning, which on
+    # a go/no-go for small craft is the dangerous direction to be wrong in.
+    gust_is_substituted = d0.get("gust_max_kmh") is None
     sev, why = classify(d0)
     actions: list[str] = []
 
@@ -202,6 +208,14 @@ def fisherman(days: list[dict]) -> Advisory:
     if gust >= WIND_SMALL_CRAFT and calm:
         actions.append(f"Next workable window: {calm['date']} "
                        f"(gusts {calm.get('gust_max_kmh', 0):.0f} km/h).")
+
+    if gust_is_substituted:
+        actions.append(
+            "CAUTION: no gust data is available from the forecast source for "
+            f"this location, so this go/no-go is based on sustained wind "
+            f"({gust:.0f} km/h), not gusts. Real gusts will be higher, so "
+            "this assessment MAY UNDER-WARN. Treat a borderline call as "
+            "no-go and confirm against the IMD port bulletin.")
 
     actions.append("Cross-check the IMD port warning and fishermen bulletin for "
                    "your landing centre before sailing.")

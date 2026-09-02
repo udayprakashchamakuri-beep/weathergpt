@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from . import alerts, i18n, nlu, security, tools
 from .cache import response_cache
 from .config import get_settings
-from .providers import geocode, imd, openmeteo, nwp
+from .providers import geocode, imd, nwp
 from .schemas import (AlertEvent, ChatRequest, ChatResponse, Intent, Persona,
                       Place, Severity)
 
@@ -64,7 +64,11 @@ async def health():
         "uptime_s": round(time.time() - STARTED, 1),
         "sources": {
             "imd_api": "configured" if imd.available() else "no key — NWP fallback",
-            "nwp": "open-meteo (GFS/ECMWF/ICON)",
+            # The provider that actually answered the most recent call, and
+            # whether it was the primary or a fallback -- not the configured
+            # ideal. Reporting the primary while the fallback is serving hides
+            # a live degradation from whoever is watching this endpoint.
+            "nwp": nwp.status(),
             "reanalysis": "ERA5 archive",
             "language": ("bhashini" if settings.bhashini_api_key
                          else "bundled templates + on-device speech"),

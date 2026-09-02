@@ -46,6 +46,18 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "bn": "{place}: {temp}°C, {condition}। অনুভূত {feels}°C, আর্দ্রতা {humidity}%, বাতাস {wind} কিমি/ঘণ্টা।",
         "mr": "{place}: {temp}°C, {condition}. जाणवते {feels}°C, आर्द्रता {humidity}%, वारा {wind} किमी/तास.",
     },
+    # Last-hour rainfall. A slot template like everything else: it used to be
+    # appended to the English string only, which both stranded the numeral
+    # outside the provenance system and silently dropped the information for
+    # every non-English user.
+    "rain_last_hour": {
+        "en": "Rain in the last hour: {rain} mm.",
+        "hi": "पिछले घंटे में वर्षा: {rain} मिमी।",
+        "te": "గత గంటలో వర్షం: {rain} మి.మీ.",
+        "ta": "கடந்த ஒரு மணி நேரத்தில் மழை: {rain} மிமீ.",
+        "bn": "গত এক ঘণ্টায় বৃষ্টি: {rain} মিমি।",
+        "mr": "गेल्या तासात पाउस: {rain} मिमी.",
+    },
     "forecast_day": {
         "en": "{date}: {condition}, {tmin}–{tmax}°C, rain {rain} mm ({prob}% chance), wind up to {wind} km/h.",
         "hi": "{date}: {condition}, {tmin}–{tmax}°C, वर्षा {rain} मिमी ({prob}% संभावना), हवा {wind} किमी/घंटा तक।",

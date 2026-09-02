@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 import httpx
 
@@ -36,6 +37,28 @@ log = logging.getLogger(__name__)
 # Ordered: first entry is primary. Each must expose current()/forecast() with
 # identical signatures and dict keys.
 PROVIDERS = (("open-meteo", openmeteo), ("met.no", metno))
+
+
+# Which provider actually served the most recent NWP call, so /api/health can
+# report reality instead of the configured primary. A deployment silently
+# running on its fallback is exactly the thing an operator needs to see.
+LAST: dict = {"provider": None, "role": None, "at": None, "note": None}
+
+
+def _record(name: str, index: int, note: str | None = None) -> None:
+    LAST.update(provider=name,
+                role="primary" if index == 0 else "fallback",
+                at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                note=note)
+
+
+def status() -> dict:
+    """Snapshot for /api/health."""
+    if not LAST["provider"]:
+        return {"provider": f"{PROVIDERS[0][0]} (configured primary, not yet called)",
+                "role": "unknown", "last_success": None, "note": None}
+    return {"provider": LAST["provider"], "role": LAST["role"],
+            "last_success": LAST["at"], "note": LAST["note"]}
 
 
 def is_rate_limited(exc: BaseException) -> bool:
@@ -51,7 +74,7 @@ async def _failover(method: str, *args, **kwargs) -> dict:
     deadline = loop.time() + budget
     errors: list[str] = []
 
-    for name, provider in PROVIDERS:
+    for index, (name, provider) in enumerate(PROVIDERS):
         remaining = deadline - loop.time()
         if remaining <= 0:
             errors.append(f"{name}: skipped, request budget of {budget}s spent")
@@ -59,6 +82,7 @@ async def _failover(method: str, *args, **kwargs) -> dict:
         try:
             data = await asyncio.wait_for(
                 getattr(provider, method)(*args, **kwargs), timeout=remaining)
+            _record(name, index, "; ".join(errors) if errors else None)
             if errors:
                 log.warning("NWP failover: %s served %s after %s",
                             name, method, "; ".join(errors))
