@@ -37,16 +37,27 @@ settings = get_settings()
 def require_demo_token(x_demo_token: str | None = Header(default=None)) -> None:
     """Gate for the dissemination endpoints.
 
-    If DEMO_TOKEN is unset the gate is OPEN, so a laptop clone with no
-    configuration still runs exactly as the README promises. It is set on the
-    deployment; that is what closes it.
+    If DEMO_TOKEN is unset while the demo endpoints are enabled, this REFUSES
+    (503) rather than allowing the call. An open-by-default gate is a gate
+    that is open precisely when someone forgot to configure it, which is the
+    case where it matters most.
 
     Compared with hmac.compare_digest so a wrong guess cannot be narrowed down
     by timing.
     """
     expected = settings.demo_token
     if not expected:
-        return
+        # FAIL CLOSED. An unset token used to mean "open", which is fine on a
+        # laptop and indefensible on a public URL -- it is exactly how the
+        # deployed instance ended up accepting /simulate from the internet.
+        # If the demo endpoints are switched on, the operator must supply a
+        # token; misconfiguration now costs a 503, not a broadcast channel.
+        raise HTTPException(
+            503,
+            "demo endpoints are enabled but DEMO_TOKEN is not configured, so "
+            "this endpoint refuses to serve. Set DEMO_TOKEN, or set "
+            "ENABLE_DEMO_ENDPOINTS=false to disable these routes entirely.",
+        )
     if not x_demo_token or not hmac.compare_digest(x_demo_token, expected):
         raise HTTPException(
             401,
@@ -73,12 +84,14 @@ def websocket_authorized(ws) -> bool:
     not widen the exposure -- but it is another reason a real channel needs a
     signed, short-lived token instead.
 
-    Unset DEMO_TOKEN leaves the socket open, matching the HTTP behaviour so a
-    local clone still runs unconfigured.
+    Unset DEMO_TOKEN refuses the upgrade, matching the HTTP gate: a missing
+    token and a wrong token are both rejected.
     """
     expected = settings.demo_token
     if not expected:
-        return True
+        # Fail closed, same as the HTTP gate: no token configured means the
+        # socket is refused rather than opened to the world.
+        return False
     supplied = ws.query_params.get("token") or ws.headers.get("x-demo-token") or ""
     return bool(supplied) and hmac.compare_digest(supplied, expected)
 
@@ -157,3 +170,29 @@ def enforce(limiter: SlidingWindowLimiter, request: Request, what: str) -> None:
             f"minute from one address. Retry in {retry_after}s.",
             headers={"Retry-After": str(retry_after)},
         )
+
+
+def startup_check() -> list[str]:
+    """Shout at startup if the deployment is in an unsafe combination.
+
+    Returns the problems found so the caller can log them; an operator reading
+    boot logs should not have to discover this from a defaced demo.
+    """
+    problems: list[str] = []
+    if settings.enable_demo_endpoints and not settings.demo_token:
+        problems.append(
+            "ENABLE_DEMO_ENDPOINTS is true but DEMO_TOKEN is unset. "
+            "/api/alerts/simulate, /subscribe and /scan and the /ws/alerts "
+            "upgrade are REFUSING all requests (503) rather than serving them "
+            "unauthenticated. Set DEMO_TOKEN in the platform environment.")
+    if not settings.metno_contact.strip():
+        problems.append(
+            "METNO_CONTACT is unset. MET Norway requires a contact address in "
+            "the User-Agent and may throttle or block requests without one, "
+            "which would take out the NWP fallback exactly when the primary "
+            "is rate-limited. Set METNO_CONTACT to an address you monitor.")
+    if settings.allowed_origins() == ["*"]:
+        problems.append(
+            "CORS is wide open (allow_origins=*). Set CORS_ALLOW_ORIGINS, or "
+            "deploy on Render where RENDER_EXTERNAL_URL pins it automatically.")
+    return problems

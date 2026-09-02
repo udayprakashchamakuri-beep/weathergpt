@@ -80,6 +80,29 @@ class Settings(BaseSettings):
     rate_limit_chat_per_min: int = 60
     rate_limit_subscribe_per_min: int = 10
 
+    # --- Upstream NWP failover -------------------------------------------
+    # MET Norway requires a User-Agent naming the application AND a contact
+    # address; anonymous or generic agents are refused and abusive ones get
+    # the whole platform blocked. https://api.met.no/doc/TermsOfService
+    # Set METNO_CONTACT to an address you monitor. It is sent to MET Norway in
+    # the User-Agent on every request, which their terms require so they can
+    # reach the operator of a misbehaving client. Deliberately NOT defaulted to
+    # a real address: a personal email hardcoded here would ship in a public
+    # repo and be scraped, and a shared placeholder would get every deployment
+    # of this project throttled as one abusive client.
+    metno_contact: str = ""
+
+    @property
+    def metno_user_agent(self) -> str:
+        contact = self.metno_contact.strip() or "METNO_CONTACT-not-set"
+        return f"WeatherGPT-SIH26068/0.4 ({contact})"
+
+    # Total wall-clock a single request may spend on upstream NWP calls,
+    # across every provider tried. Without this cap one rate-limited request
+    # cost ~25s, and a few concurrent ones starved the whole free instance
+    # into failing its health check.
+    upstream_budget_s: float = 12.0
+
     # --- Runtime --------------------------------------------------------
     cache_ttl_seconds: int = 600
     # Short per-attempt timeout: a hung upstream connection should fail

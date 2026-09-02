@@ -11,7 +11,7 @@ import asyncio
 
 from . import advisory as adv
 from . import i18n
-from .providers import imd, openmeteo
+from .providers import imd, openmeteo, nwp
 from .schemas import (Advisory, Fact, Intent, ParsedQuery, Persona, Place,
                       Provenance, Severity)
 
@@ -32,8 +32,8 @@ async def answer_current(q: ParsedQuery, place: Place) -> dict:
     # cold latency is one round trip rather than two. This is the single
     # biggest lever on p95 after the cache.
     cur, fc = await asyncio.gather(
-        openmeteo.current(place.lat, place.lon),
-        openmeteo.forecast(place.lat, place.lon, days=7),
+        nwp.current(place.lat, place.lon),
+        nwp.forecast(place.lat, place.lon, days=7),
     )
     prov = cur["provenance"]
 
@@ -94,7 +94,7 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
     # Always pull a full week: the answer is trimmed to what was asked, but the
     # chart and the "next suitable window" search need the wider horizon, and
     # the wider pull caches once for every narrower question about this place.
-    fc = await openmeteo.forecast(place.lat, place.lon, days=max(7, days_n))
+    fc = await nwp.forecast(place.lat, place.lon, days=max(7, days_n))
     prov = fc["provenance"]
     days = fc["days"]
 
@@ -173,7 +173,7 @@ async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
         degraded.append("IMD_API_KEY not set — screening NWP output against IMD "
                         "impact thresholds instead of reading official warnings")
 
-    fc = await openmeteo.forecast(place.lat, place.lon, days=5)
+    fc = await nwp.forecast(place.lat, place.lon, days=5)
     sources.append(fc["provenance"])
 
     hits = []
@@ -211,8 +211,8 @@ async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
 # ----------------------------------------------------------------- advisory
 async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
     cur, fc = await asyncio.gather(
-        openmeteo.current(place.lat, place.lon),
-        openmeteo.forecast(place.lat, place.lon, days=7),
+        nwp.current(place.lat, place.lon),
+        nwp.forecast(place.lat, place.lon, days=7),
     )
     a = adv.build(q.persona, fc["days"], cur)
 

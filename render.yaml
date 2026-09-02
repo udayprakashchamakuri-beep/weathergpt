@@ -37,6 +37,14 @@ services:
       - key: ENABLE_DEMO_ENDPOINTS
         value: "true"
 
+      # MET Norway requires a contact address in the User-Agent. Without it
+      # the NWP fallback can be throttled -- and the fallback is what keeps
+      # the service alive, since api.open-meteo.com 429s Render's shared
+      # egress IP on every forecast request. sync:false = prompted, not
+      # committed.
+      - key: METNO_CONTACT
+        sync: false
+
       - key: RATE_LIMIT_CHAT_PER_MIN
         value: "60"
       - key: RATE_LIMIT_SUBSCRIBE_PER_MIN

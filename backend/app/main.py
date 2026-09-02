@@ -7,6 +7,7 @@ UI:   http://localhost:8000/
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from . import alerts, i18n, nlu, security, tools
 from .cache import response_cache
 from .config import get_settings
-from .providers import geocode, imd, openmeteo
+from .providers import geocode, imd, openmeteo, nwp
 from .schemas import (AlertEvent, ChatRequest, ChatResponse, Intent, Persona,
                       Place, Severity)
 
@@ -48,6 +49,12 @@ app.add_middleware(
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
+@app.on_event("startup")
+async def _warn_on_unsafe_config() -> None:
+    for problem in security.startup_check():
+        logging.getLogger("weathergpt.startup").error("CONFIG: %s", problem)
+
+
 # ------------------------------------------------------------------ health
 @app.get("/api/health")
 async def health():
@@ -65,6 +72,8 @@ async def health():
         },
         "cache": {"response": response_cache.stats()},
         "subscriptions": len(alerts.SUBSCRIPTIONS),
+        # Open WebSocket clients currently in the alert fan-out set.
+        "live_connections": len(alerts.CONNECTIONS),
         "languages": list(i18n.LANGUAGES),
         "templated_languages": list(i18n.TEMPLATED),
     }
@@ -132,10 +141,15 @@ async def chat(req: ChatRequest, request: Request):
         friendly = ("The upstream data source is rate-limiting or unreachable "
                     "right now, so I will not guess a value. Try again in a "
                     "moment.")
-        if "429" in detail:
-            friendly = ("The public archive is rate-limiting this shared IP. "
-                        "In deployment this query is served from the local "
-                        "IMD gridded / ERA5 store with no such limit.")
+        if "429" in detail or "rate-limited" in detail:
+            # Name the host that actually refused. The forecast API and the
+            # ERA5 archive are different services on different limits, and
+            # blaming the archive for a forecast failure sends anyone
+            # debugging this to the wrong place.
+            friendly = ("Every upstream forecast source refused this request "
+                        "(rate limit on the shared deployment IP). No value "
+                        "will be guessed. Air quality and the climate archive "
+                        "are unaffected; try again shortly.")
         return ChatResponse(
             answer=friendly, answer_en=friendly, intent=parsed.intent,
             persona=parsed.persona, lang=parsed.lang, place=place,
@@ -187,7 +201,7 @@ async def parse_only(q: str, lang: str = "en"):
 async def api_current(place: str | None = None, lat: float | None = None,
                       lon: float | None = None):
     p = await _place_or_400(place, lat, lon)
-    data = await openmeteo.current(p.lat, p.lon)
+    data = await nwp.current(p.lat, p.lon)
     return {"place": p.model_dump(), **{k: v for k, v in data.items()
                                         if k != "provenance"},
             "provenance": data["provenance"].model_dump(mode="json")}
@@ -197,7 +211,7 @@ async def api_current(place: str | None = None, lat: float | None = None,
 async def api_forecast(place: str | None = None, lat: float | None = None,
                        lon: float | None = None, days: int = Query(7, ge=1, le=16)):
     p = await _place_or_400(place, lat, lon)
-    data = await openmeteo.forecast(p.lat, p.lon, days=days)
+    data = await nwp.forecast(p.lat, p.lon, days=days)
     return {"place": p.model_dump(), "days": data["days"],
             "provenance": data["provenance"].model_dump(mode="json")}
 
@@ -326,9 +340,14 @@ async def ws_alerts(ws: WebSocket):
         await ws.close(code=1008, reason="missing or invalid demo token")
         return
     await ws.accept()
-    await ws.send_json({"type": "hello", "ts": datetime.now(timezone.utc).isoformat(),
-                        "subscriptions": len(alerts.SUBSCRIPTIONS)})
+    # Join the fan-out set: from here on this client receives every dispatched
+    # alert, including ones triggered by curl, another tab, or the scheduler --
+    # not just answers to its own requests.
+    alerts.register(ws)
     try:
+        await ws.send_json({"type": "hello",
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                            "subscriptions": len(alerts.SUBSCRIPTIONS)})
         while True:
             msg = await ws.receive_json()
             if msg.get("action") == "scan":
@@ -338,13 +357,22 @@ async def ws_alerts(ws: WebSocket):
                     continue
                 event = await alerts.scan_location(p.lat, p.lon, p.name)
                 if event:
-                    await ws.send_json({"type": "alert", **alerts.dispatch(event)})
+                    # No direct send: dispatch() broadcasts to every registered
+                    # connection and this socket is one of them. Sending here
+                    # too would deliver the alert twice to the requester.
+                    alerts.dispatch(event)
                 else:
+                    # "clear" is an answer to this client's question, not an
+                    # alert, so it stays point-to-point.
                     await ws.send_json({"type": "clear", "place": p.name})
             elif msg.get("action") == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:
-        return
+        pass
+    finally:
+        # Must run on every exit path -- a client that disconnects mid-send
+        # would otherwise sit in the registry as a permanently failing target.
+        alerts.unregister(ws)
 
 
 # ---------------------------------------------------------------- frontend

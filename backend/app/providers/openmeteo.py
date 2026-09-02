@@ -98,6 +98,13 @@ async def _get(url: str, params: dict, ttl: int = 600, retries: int = 2) -> dict
             return data
         except Exception as exc:            # noqa: BLE001 - retried below
             last = exc
+            # A 429 is a quota verdict, not a blip. On a shared-egress host
+            # the quota belongs to other tenants and will still be spent a
+            # second from now, so retrying only burns the caller's budget --
+            # three attempts at an 8s timeout cost ~25s to learn nothing.
+            # Break out immediately and let providers/nwp.py fail over.
+            if isinstance(exc, httpx.HTTPStatusError) and                     exc.response is not None and exc.response.status_code == 429:
+                break
             if attempt < retries:
                 await asyncio.sleep(0.35 * (2 ** attempt))
 

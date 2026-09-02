@@ -18,17 +18,92 @@ haversine, so the whole loop is observable without any infrastructure.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from . import advisory as adv
 from . import i18n
-from .providers import openmeteo
+from .providers import nwp
 from .schemas import (AlertEvent, Persona, Provenance, Severity, Subscription)
+
+log = logging.getLogger(__name__)
 
 SUBSCRIPTIONS: dict[str, Subscription] = {}
 DELIVERY_LOG: list[dict] = []
+
+# Live WebSocket clients. This is what makes /ws/alerts a push channel rather
+# than a request/response socket: without it, dispatch() could only ever answer
+# the client that asked, so an alert fired from curl or a second tab reached
+# nobody.
+#
+# Duck-typed on purpose -- anything with an async send_json() works, so this
+# module stays free of a FastAPI import and remains unit-testable without a
+# transport. Set, not list, so a double-register is harmless.
+#
+# In-process, like SUBSCRIPTIONS and DELIVERY_LOG, and for the same reason it
+# is safe: the service runs a single worker. With more than one, a client
+# connected to worker A would miss an alert dispatched on worker B, which is
+# the same partitioning bug --workers 1 already guards against.
+CONNECTIONS: set = set()
+
+
+def register(ws) -> None:
+    CONNECTIONS.add(ws)
+
+
+def unregister(ws) -> None:
+    CONNECTIONS.discard(ws)
+
+
+async def broadcast(payload: dict) -> int:
+    """Push one payload to every live connection. Returns the number reached.
+
+    A send can fail because a client vanished between the registry check and
+    the write -- a closed tab, a dropped mobile connection, a proxy timeout.
+    One such failure must not abort the fan-out, so every send is awaited
+    concurrently with return_exceptions=True and the losers are evicted rather
+    than raised. Iterating a snapshot keeps the eviction from mutating the set
+    mid-iteration.
+    """
+    targets = list(CONNECTIONS)
+    if not targets:
+        return 0
+    results = await asyncio.gather(
+        *(ws.send_json(payload) for ws in targets), return_exceptions=True)
+    delivered = 0
+    for ws, outcome in zip(targets, results):
+        if isinstance(outcome, BaseException):
+            log.info("dropping dead websocket: %r", outcome)
+            unregister(ws)
+        else:
+            delivered += 1
+    return delivered
+
+
+def _schedule_broadcast(payload: dict) -> None:
+    """Fire-and-forget the broadcast from synchronous dispatch().
+
+    dispatch() is sync and is called from async request handlers, so the loop
+    is already running and create_task is the right bridge. Outside a loop --
+    a direct unit-test call -- there is nothing to push to and nothing to do,
+    so this is a no-op rather than an error. The task reference is held until
+    completion because asyncio only keeps a weak reference to tasks.
+    """
+    if not CONNECTIONS:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(broadcast(payload))
+    _PENDING.add(task)
+    task.add_done_callback(_PENDING.discard)
+
+
+_PENDING: set = set()
 
 SEV_ORDER = [Severity.NONE, Severity.GREEN, Severity.YELLOW,
              Severity.ORANGE, Severity.RED]
@@ -108,15 +183,21 @@ def dispatch(event: AlertEvent) -> dict:
         }
         DELIVERY_LOG.append(record)
         sent.append(record)
-    return {"alert": event.model_dump(mode="json"), "delivered": sent,
-            "matched": len(matched)}
+    result = {"alert": event.model_dump(mode="json"), "delivered": sent,
+              "matched": len(matched)}
+    # Push to every open UI. Deliberately after the result is assembled and
+    # deliberately not part of the return value: the HTTP callers and the
+    # smoke suite depend on this exact shape, so broadcasting is a side effect
+    # that adds a channel without changing the contract.
+    _schedule_broadcast({"type": "alert", **result})
+    return result
 
 
 async def scan_location(lat: float, lon: float, area: str) -> AlertEvent | None:
     """Threshold monitor: the same classifier the chat path uses, run on a
     schedule instead of on a question. In production this is triggered by the
     arrival of a new model run or a CAP message, not by a timer."""
-    fc = await openmeteo.forecast(lat, lon, days=3)
+    fc = await nwp.forecast(lat, lon, days=3)
     worst, worst_day, worst_why = Severity.GREEN, None, []
     for d in fc["days"]:
         sev, why = adv.classify(d)

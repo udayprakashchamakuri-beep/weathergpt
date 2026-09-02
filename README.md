@@ -216,6 +216,38 @@ gh workflow disable keepalive.yml    # after
 It needs a `SPACE_URL` repository variable set to the service URL
 (`https://<service>.onrender.com`). No token: `/api/health` is ungated.
 
+## Upstream sources and failover
+
+`api.open-meteo.com` rate-limits by source IP. A free managed host shares one
+egress IP across tenants, so on Render it returns **429 to every forecast
+request** — the quota is spent by other tenants and no amount of retrying
+recovers it. Current conditions, forecast, warnings and advisory all depend on
+that call; air quality and the ERA5 archive are different hosts and are
+unaffected.
+
+`providers/nwp.py` therefore tries providers in order and fails over:
+
+| Order | Provider | Notes |
+|---|---|---|
+| 1 | Open-Meteo (GFS/ECMWF/ICON) | primary; **429 is never retried** |
+| 2 | MET Norway Locationforecast 2.0 | independent model chain and network path |
+
+The `Provenance` record names whichever source answered, so the chip in the UI
+visibly changes on failover and no number is ever misattributed.
+
+Two caveats when MET Norway is answering:
+
+- **No wind gusts for most Indian points.** `advisory.py` already falls back to
+  sustained wind, which is lower — so the 34 kt small-craft threshold fires
+  less readily. Gust-driven advice is weaker, not wrong.
+- **No probability of precipitation**, rendered as an em dash rather than a
+  fabricated percentage.
+
+Set `METNO_CONTACT`; MET Norway requires a reachable contact in the
+User-Agent. Each request has a total upstream budget (`UPSTREAM_BUDGET_S`,
+default 12s) across all providers, so a dead upstream degrades one answer
+instead of starving the instance.
+
 ## Follow-up work
 
 - **Move `SUBSCRIPTIONS` and `DELIVERY_LOG` out of process memory.** They are
@@ -256,9 +288,12 @@ find, so it is better said first.
   reachable from outside — an open endpoint that fans out a fabricated
   national warning is a public-safety hazard.
 - **The dissemination endpoints are gated by a shared secret, not by auth.**
-  `/api/alerts/simulate`, `/subscribe` and `/scan` require an `X-Demo-Token`
-  header matching `DEMO_TOKEN` whenever that variable is set (unset = open, so
-  a laptop clone still runs unconfigured). CORS is pinned to
+  `/api/alerts/simulate`, `/subscribe`, `/scan` and the `/ws/alerts` upgrade
+  require an `X-Demo-Token` matching `DEMO_TOKEN`. The gate **fails closed**:
+  if `ENABLE_DEMO_ENDPOINTS` is true and `DEMO_TOKEN` is unset, those routes
+  return 503 and the socket refuses the upgrade, rather than opening up. An
+  earlier build treated "unset" as "open", which is how a deployed instance
+  ended up accepting `/simulate` from the public internet. CORS is pinned to
   `CORS_ALLOW_ORIGINS`, and `/api/chat` and `/subscribe` are rate-limited
   per IP in-process.
   Be precise about what that is worth: **the token is injected into the page at
