@@ -34,10 +34,21 @@ from .schemas import Advisory, Persona, Severity
 RAIN_LIGHT, RAIN_MODERATE = 2.5, 15.6
 RAIN_HEAVY, RAIN_VERY_HEAVY, RAIN_EXTREME = 64.5, 115.6, 204.5
 
-# Wind (km/h). 34 kt = 62.9 km/h is IMD's small-craft / fishermen warning
-# threshold. (A "squall" in IMD terminology is a separate, stricter
-# phenomenon; these names describe the warning, not the phenomenon.)
-WIND_STRONG, WIND_SMALL_CRAFT, WIND_GALE = 40.0, 62.0, 88.0
+# Wind (km/h). IMD states its marine warnings in KNOTS, while every rule below
+# compares km/h, so these are DERIVED from the knot figures rather than
+# transcribed as rounded km/h.
+#
+# They were previously written as the literals 62.0 and 88.0 while the comment
+# alongside them said "34 kt = 62.9 km/h" -- the code contradicted its own
+# documentation. Both literals sat about a knot BELOW the criterion they
+# claimed to encode, so the small-craft and gale warnings each fired later
+# than IMD's own threshold. On a go/no-go for small craft that is an
+# under-warning, which is the dangerous direction to be wrong in.
+KT_TO_KMH = 1.852
+
+WIND_STRONG = 40.0                       # km/h-native: IMD "strong winds"
+WIND_SMALL_CRAFT = 34 * KT_TO_KMH        # 34 kt = 62.968 km/h
+WIND_GALE = 48 * KT_TO_KMH               # 48 kt = 88.896 km/h
 
 # Absolute screening thresholds -- NOT IMD's departure-from-normal heat-wave
 # criterion. See the module docstring.

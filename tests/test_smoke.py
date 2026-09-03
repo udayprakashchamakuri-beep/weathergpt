@@ -303,27 +303,27 @@ async def _daily(slots):
 
 
 # --- the assertion that matters most: a real gust trips a real threshold ---
-# WIND_SMALL_CRAFT is 62.0 km/h, i.e. 17.2222 m/s. So 17.2 m/s is 61.92 km/h
-# and is genuinely BELOW it, while 17.3 m/s is 62.28 km/h and is above. Both
-# sides are asserted so the boundary is pinned rather than approximated.
-below = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.2, 0.35)]))
-above = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.3, 0.35)]))
-check("17.2 m/s gust converts to 61.9 km/h",
-      below["days"][0]["gust_max_kmh"] == 61.9,
+# WIND_SMALL_CRAFT is 34 kt = 62.968 km/h, i.e. 17.4911 m/s -- which is 34 kt
+# expressed in m/s. So 17.4 m/s (62.64 km/h) is genuinely BELOW it and 17.5
+# m/s (63.0 km/h) is above. Both sides are asserted so the boundary is pinned.
+below = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.4, 0.35)]))
+above = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.5, 0.35)]))
+check("17.4 m/s gust converts to 62.6 km/h",
+      below["days"][0]["gust_max_kmh"] == 62.6,
       f"got {below['days'][0]['gust_max_kmh']}")
-check("17.3 m/s gust converts to 62.3 km/h",
-      above["days"][0]["gust_max_kmh"] == 62.3,
+check("17.5 m/s gust converts to 63.0 km/h",
+      above["days"][0]["gust_max_kmh"] == 63.0,
       f"got {above['days'][0]['gust_max_kmh']}")
-check("61.9 km/h stays below the small-craft threshold",
+check("62.6 km/h stays below the 34 kt small-craft threshold",
       below["days"][0]["gust_max_kmh"] < _adv.WIND_SMALL_CRAFT)
-check("62.3 km/h trips WIND_SMALL_CRAFT",
+check("63.0 km/h trips WIND_SMALL_CRAFT (34 kt)",
       above["days"][0]["gust_max_kmh"] >= _adv.WIND_SMALL_CRAFT)
 check("a tripping gust drives the fisherman advisory to ORANGE or worse",
       _adv.fisherman(above["days"]).severity in (_Sev.ORANGE, _Sev.RED),
       f"got {_adv.fisherman(above['days']).severity}")
 # The exact regression this guards against: forgetting the 3.6.
-check("unconverted 17.3 m/s would NOT trip the threshold (why 3.6 matters)",
-      17.3 < _adv.WIND_SMALL_CRAFT)
+check("unconverted 17.5 m/s would NOT trip the threshold (why 3.6 matters)",
+      17.5 < _adv.WIND_SMALL_CRAFT)
 
 check("pop 0.35 survives aggregation as 35%",
       above["days"][0]["rain_prob_pct"] == 35,
