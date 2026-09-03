@@ -229,13 +229,30 @@ unaffected.
 
 | Order | Provider | Notes |
 |---|---|---|
-| 1 | Open-Meteo (GFS/ECMWF/ICON) | primary; **429 is never retried** |
-| 2 | MET Norway Locationforecast 2.0 | independent model chain and network path |
+| 1 | **OpenWeatherMap** (2.5 endpoints) | keyed, so the quota is this deployment's rather than the shared egress IP's. Publishes wind gusts and precipitation probability. Skipped entirely when `OPENWEATHER_API_KEY` is unset |
+| 2 | MET Norway Locationforecast 2.0 | unkeyed second opinion on an independent model chain and network path |
+| 3 | Open-Meteo (GFS/ECMWF/ICON) | last, because it is the one actually rate-limited here; **429 is never retried** |
+
+IMD is deliberately **not** in this chain. `providers/imd.py` is a warnings and
+nowcast adapter (`district_warnings`, `nowcast`, `cyclone_state`, `marine`) with
+no `current()`/`forecast()` to call, and per "Honest limits" below it has never
+run against a live key. It is consumed separately by the warnings path. The
+hook is documented in `providers/nwp.py` for when that adapter exists.
+
+Unit conversions live at the OpenWeather adapter boundary and nowhere else:
+`units=metric` returns wind in **m/s** (x3.6 to km/h, which is what every
+`advisory.py` threshold is expressed in), `pop` is a **0-1 fraction** (x100),
+and the 3-hourly forecast is aggregated into **Asia/Kolkata** days with an
+absent `rain` block counted as 0.0. Each of those is a silent under-warning if
+wrong, so all three are asserted in `tests/test_smoke.py` section 7 —
+including that an unconverted 17.3 m/s gust would fail to trip the 34 kt
+small-craft threshold that 62.3 km/h correctly trips.
 
 The `Provenance` record names whichever source answered, so the chip in the UI
 visibly changes on failover and no number is ever misattributed.
 
-Two caveats when MET Norway is answering:
+Two caveats when **MET Norway** is answering (they do not apply to
+OpenWeather, which publishes both fields):
 
 - **No wind gusts for most Indian points.** `advisory.py` already falls back to
   sustained wind, which is lower — so the 34 kt small-craft threshold fires

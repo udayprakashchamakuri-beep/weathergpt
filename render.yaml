@@ -37,6 +37,13 @@ services:
       - key: ENABLE_DEMO_ENDPOINTS
         value: "true"
 
+      # OpenWeatherMap free tier (60/min, 1M/month). sync:false means Render
+      # prompts for it and stores it in the dashboard -- it is never written
+      # to this file, the repo, or an image layer. Without it the provider is
+      # skipped entirely rather than 401-ing.
+      - key: OPENWEATHER_API_KEY
+        sync: false
+
       # MET Norway requires a contact address in the User-Agent. Without it
       # the NWP fallback can be throttled -- and the fallback is what keeps
       # the service alive, since api.open-meteo.com 429s Render's shared

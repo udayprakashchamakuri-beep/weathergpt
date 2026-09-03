@@ -81,6 +81,16 @@ class Settings(BaseSettings):
     rate_limit_subscribe_per_min: int = 10
 
     # --- Upstream NWP failover -------------------------------------------
+    # OpenWeatherMap free tier (60/min, 1M/month). Preferred over the
+    # IP-limited sources because the quota is keyed to this deployment rather
+    # than shared with every other tenant on the host's egress IP, and because
+    # it supplies wind gusts and probability of precipitation.
+    # Set ONLY via the OPENWEATHER_API_KEY environment variable. There is
+    # deliberately no default and it must never be committed: an empty value
+    # means the provider is skipped, which is the correct safe behaviour.
+    openweather_api_key: str = ""
+
+
     # MET Norway requires a User-Agent naming the application AND a contact
     # address; anonymous or generic agents are refused and abusive ones get
     # the whole platform blocked. https://api.met.no/doc/TermsOfService

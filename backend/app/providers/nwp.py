@@ -30,13 +30,46 @@ from datetime import datetime, timezone
 import httpx
 
 from ..config import get_settings
-from . import metno, openmeteo
+from . import metno, openmeteo, openweather
 
 log = logging.getLogger(__name__)
 
-# Ordered: first entry is primary. Each must expose current()/forecast() with
+# Ordered chain, best first. Each must expose current()/forecast() with
 # identical signatures and dict keys.
-PROVIDERS = (("open-meteo", openmeteo), ("met.no", metno))
+#
+#   openweather  keyed, so the quota belongs to this deployment rather than to
+#                whatever else shares the host's egress IP -- which is exactly
+#                what took Open-Meteo out in production. Supplies wind gusts
+#                and probability of precipitation, which met.no does not.
+#   met.no       unkeyed second opinion on a different network path. Kept
+#                deliberately: a working failover chain is worth more than any
+#                single provider.
+#   open-meteo   last, because it is the one that is actually rate-limited
+#                here. Still useful locally and if the others fail.
+#
+# NOT in this chain: IMD. providers/imd.py exposes district_warnings(),
+# nowcast(), cyclone_state() and marine() -- it is a warnings and nowcast
+# source, not a gridded NWP one, and has no current()/forecast() adapter to
+# call. It is consumed separately by tools.answer_warnings(). Slotting it in
+# front here would mean writing an NWP adapter against an API that has never
+# been exercised against a live key (see "Honest limits" in README.md), so the
+# hook is documented rather than faked: add ("imd", imd) at the front once
+# imd.py grows current()/forecast() and a key exists to test them with.
+_CHAIN = (("openweather", openweather), ("met.no", metno), ("open-meteo", openmeteo))
+
+
+def chain() -> tuple:
+    """Providers that are usable right now.
+
+    A provider exposing available() and returning False is dropped rather than
+    tried: an unkeyed OpenWeather call would spend budget to earn a 401.
+    """
+    return tuple((name, p) for name, p in _CHAIN
+                 if not hasattr(p, "available") or p.available())
+
+
+# Kept for callers/tests that want the configured order regardless of keys.
+PROVIDERS = _CHAIN
 
 
 # Which provider actually served the most recent NWP call, so /api/health can
@@ -54,11 +87,15 @@ def _record(name: str, index: int, note: str | None = None) -> None:
 
 def status() -> dict:
     """Snapshot for /api/health."""
+    active = chain()
     if not LAST["provider"]:
-        return {"provider": f"{PROVIDERS[0][0]} (configured primary, not yet called)",
-                "role": "unknown", "last_success": None, "note": None}
+        return {"provider": (f"{active[0][0]} (configured primary, not yet called)"
+                             if active else "none available"),
+                "role": "unknown", "last_success": None, "note": None,
+                "chain": [n for n, _ in active]}
     return {"provider": LAST["provider"], "role": LAST["role"],
-            "last_success": LAST["at"], "note": LAST["note"]}
+            "last_success": LAST["at"], "note": LAST["note"],
+            "chain": [n for n, _ in active]}
 
 
 def is_rate_limited(exc: BaseException) -> bool:
@@ -74,7 +111,10 @@ async def _failover(method: str, *args, **kwargs) -> dict:
     deadline = loop.time() + budget
     errors: list[str] = []
 
-    for index, (name, provider) in enumerate(PROVIDERS):
+    active = chain()
+    if not active:
+        raise RuntimeError("no NWP provider is available")
+    for index, (name, provider) in enumerate(active):
         remaining = deadline - loop.time()
         if remaining <= 0:
             errors.append(f"{name}: skipped, request budget of {budget}s spent")

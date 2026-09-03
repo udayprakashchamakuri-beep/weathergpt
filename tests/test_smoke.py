@@ -85,13 +85,44 @@ check("all facts have a product",
       all(f["provenance"]["product"] for f in d["facts"]))
 check("response lists its sources", len(d["sources"]) > 0)
 
-# The provenance record must not invent an issue time. Open-Meteo publishes a
-# valid time for the current analysis and none for the daily forecast, so the
-# forecast source must carry issued_at = null rather than "now".
+# The provenance record must not INVENT an issue time -- that is the property
+# under test, and it is unchanged. What changed is that it is now enforced per
+# source, because the sources genuinely differ:
+#
+#   Open-Meteo   publishes no model run time for the daily forecast, so the
+#                only honest value is null. Anything else is fabricated.
+#   MET Norway   publishes a real run time in properties.meta.updated_at, so
+#                carrying it is MORE provenance, not less.
+#   OpenWeather  /data/2.5/forecast publishes no run time -> null.
+#
+# The original assertion was "issued_at is always null", which was correct
+# while Open-Meteo was the only forecast source and became wrong the moment a
+# source that publishes a run time was added. Asserting null unconditionally
+# would now punish a provider for being more transparent, so the check tests
+# the actual invariant: an issue time is never request time.
 fc_src = [s_ for s_ in d["sources"] if "forecast" in s_["product"]]
-check("forecast provenance does not fabricate an issue time",
-      bool(fc_src) and fc_src[0]["issued_at"] is None,
-      f"got {fc_src[0]['issued_at'] if fc_src else 'no forecast source'}")
+check("a forecast source is present", bool(fc_src))
+_fsrc = fc_src[0]["source"] if fc_src else ""
+_issued = fc_src[0]["issued_at"] if fc_src else "no forecast source"
+
+if "Open-Meteo" in _fsrc or "OpenWeather" in _fsrc:
+    check("forecast provenance does not fabricate an issue time",
+          _issued is None, f"{_fsrc} got {_issued}")
+else:
+    # A source that does publish one may carry it, but it must be the
+    # source's own timestamp -- never "now" stamped on at request time.
+    from datetime import datetime as _d, timezone as _tz
+    _ok = _issued is None
+    if _issued is not None:
+        _t = _d.fromisoformat(str(_issued).replace("Z", "+00:00"))
+        if _t.tzinfo is None:
+            _t = _t.replace(tzinfo=_tz.utc)
+        _age = abs((_d.now(_tz.utc) - _t).total_seconds())
+        # Stamped within 30s of the request is indistinguishable from now().
+        _ok = _age > 30
+    check("forecast issue time is the source's own, not request time",
+          _ok, f"{_fsrc} got {_issued}")
+
 cur_src = [s_ for s_ in d["sources"] if "analysis" in s_["product"]]
 check("analysis provenance carries the source's own valid time",
       bool(cur_src) and cur_src[0]["issued_at"] is not None)
@@ -213,6 +244,136 @@ check("cached response under 60 ms", second["latency_ms"] < 60,
       f"{second['latency_ms']} ms")
 check("cold response under 8 s", first["latency_ms"] < 8000,
       f"{first['latency_ms']} ms")
+
+# ------------------------------------- 7. OpenWeather unit conversions
+# These run in-process against synthetic payloads: no key, no network, no
+# running server. They assert on the CONVERSION, not the plumbing, because
+# every one of them is a silent under-warning if it is wrong. advisory.py
+# compares against km/h thresholds and will accept a smaller number without
+# complaint -- a raw m/s gust simply never trips anything.
+print("")
+print("[7] OpenWeather unit conversions")
+
+import asyncio                                          # noqa: E402
+from datetime import datetime as _dt, timezone as _tz   # noqa: E402
+
+from app import advisory as _adv                        # noqa: E402
+from app.providers import openweather as ow             # noqa: E402
+from app.schemas import Severity as _Sev                # noqa: E402
+
+# --- 1. wind: metres per second -> km/h ------------------------------------
+check("10 m/s renders as 36 km/h", ow._to_kmh(10) == 36.0, f"got {ow._to_kmh(10)}")
+check("0 m/s stays 0 km/h", ow._to_kmh(0) == 0.0)
+check("absent wind stays None, not 0", ow._to_kmh(None) is None)
+
+# --- 2. pop: 0-1 fraction -> percentage ------------------------------------
+check("pop 0.35 renders as 35%", ow._pop_to_pct(0.35) == 35,
+      f"got {ow._pop_to_pct(0.35)}")
+check("pop 1.0 renders as 100%", ow._pop_to_pct(1.0) == 100)
+check("pop 0 renders as 0%, not None", ow._pop_to_pct(0) == 0)
+check("absent pop stays None", ow._pop_to_pct(None) is None)
+
+# --- 3. absent rain means zero, not missing --------------------------------
+check("absent rain block counts as 0.0 mm", ow._rain_mm(None, "3h") == 0.0)
+check("rain 3h of 1.2 reads as 1.2 mm", ow._rain_mm({"3h": 1.2}, "3h") == 1.2)
+check("rain block without the window key is 0.0",
+      ow._rain_mm({"1h": 9.9}, "3h") == 0.0)
+
+
+def _slot(dt_utc, temp, gust_ms, pop, rain_3h=None, cid=800):
+    """One 3-hourly OpenWeather forecast entry, in their exact shape."""
+    epoch = int(_dt.fromisoformat(dt_utc).replace(tzinfo=_tz.utc).timestamp())
+    slot = {"dt": epoch, "main": {"temp": temp, "humidity": 70},
+            "wind": {"speed": gust_ms / 2, "gust": gust_ms},
+            "pop": pop, "weather": [{"id": cid, "description": "x"}]}
+    if rain_3h is not None:                # omitted entirely when dry
+        slot["rain"] = {"3h": rain_3h}
+    return slot
+
+
+async def _daily(slots):
+    """Run the real aggregation over a synthetic payload."""
+    async def fake_get(url, lat, lon, ttl):
+        return {"list": slots, "city": {"timezone": 19800}}
+    real, ow._get = ow._get, fake_get
+    try:
+        return await ow.forecast(13.0, 80.2, days=5)
+    finally:
+        ow._get = real
+
+
+# --- the assertion that matters most: a real gust trips a real threshold ---
+# WIND_SMALL_CRAFT is 62.0 km/h, i.e. 17.2222 m/s. So 17.2 m/s is 61.92 km/h
+# and is genuinely BELOW it, while 17.3 m/s is 62.28 km/h and is above. Both
+# sides are asserted so the boundary is pinned rather than approximated.
+below = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.2, 0.35)]))
+above = asyncio.run(_daily([_slot("2026-09-02T06:00:00", 30.0, 17.3, 0.35)]))
+check("17.2 m/s gust converts to 61.9 km/h",
+      below["days"][0]["gust_max_kmh"] == 61.9,
+      f"got {below['days'][0]['gust_max_kmh']}")
+check("17.3 m/s gust converts to 62.3 km/h",
+      above["days"][0]["gust_max_kmh"] == 62.3,
+      f"got {above['days'][0]['gust_max_kmh']}")
+check("61.9 km/h stays below the small-craft threshold",
+      below["days"][0]["gust_max_kmh"] < _adv.WIND_SMALL_CRAFT)
+check("62.3 km/h trips WIND_SMALL_CRAFT",
+      above["days"][0]["gust_max_kmh"] >= _adv.WIND_SMALL_CRAFT)
+check("a tripping gust drives the fisherman advisory to ORANGE or worse",
+      _adv.fisherman(above["days"]).severity in (_Sev.ORANGE, _Sev.RED),
+      f"got {_adv.fisherman(above['days']).severity}")
+# The exact regression this guards against: forgetting the 3.6.
+check("unconverted 17.3 m/s would NOT trip the threshold (why 3.6 matters)",
+      17.3 < _adv.WIND_SMALL_CRAFT)
+
+check("pop 0.35 survives aggregation as 35%",
+      above["days"][0]["rain_prob_pct"] == 35,
+      f"got {above['days'][0]['rain_prob_pct']}")
+
+# --- the gust degradation notice must switch OFF for OpenWeather -----------
+# tools._gust_degradation() warns that wind thresholds are being evaluated on
+# sustained wind because the source published no gusts. OpenWeather does
+# publish them, so that warning must disappear -- otherwise the demo cries
+# wolf on every answer and the notice stops meaning anything. Asserted in both
+# directions so neither state can silently flip.
+from app import tools as _tools                         # noqa: E402
+
+_ow_days = above["days"]                                # has gust_max_kmh
+_ow_cur = {"wind_gust_kmh": 40.0}
+_prov_ow = ow._prov("5-day forecast (3-hourly, aggregated)")
+check("no gust caveat when the source publishes gusts (OpenWeather)",
+      _tools._gust_degradation(_ow_cur, _ow_days, _prov_ow) == [],
+      f"got {_tools._gust_degradation(_ow_cur, _ow_days, _prov_ow)}")
+
+_no_gust_days = [dict(d, gust_max_kmh=None) for d in _ow_days]
+check("gust caveat still fires when the source publishes none (MET Norway)",
+      len(_tools._gust_degradation({"wind_gust_kmh": None},
+                                   _no_gust_days, _prov_ow)) == 1)
+
+# --- rain summed across 3-hourly slots, with dry slots absent --------------
+mixed = asyncio.run(_daily([
+    _slot("2026-09-02T00:00:00", 26.0, 5.0, 0.1),                # dry: no key
+    _slot("2026-09-02T03:00:00", 27.0, 5.0, 0.6, rain_3h=1.2),
+    _slot("2026-09-02T06:00:00", 31.0, 5.0, 0.6, rain_3h=2.3),
+]))
+check("3-hourly rain sums across the day, absent treated as 0.0",
+      mixed["days"][0]["rain_mm"] == 3.5, f"got {mixed['days'][0]['rain_mm']}")
+check("daily max/min come from the 3-hourly slots",
+      (mixed["days"][0]["tmax_c"], mixed["days"][0]["tmin_c"]) == (31.0, 26.0),
+      f"got {mixed['days'][0]['tmax_c']}/{mixed['days'][0]['tmin_c']}")
+
+# --- bucketing is Asia/Kolkata, not UTC ------------------------------------
+# 19:00Z on 2 Sep is 00:30 IST on 3 Sep. Bucketed in UTC it lands on the 2nd
+# and corrupts that day's maximum; bucketed in IST it correctly starts the 3rd.
+crossing = asyncio.run(_daily([
+    _slot("2026-09-02T06:00:00", 30.0, 5.0, 0.1),
+    _slot("2026-09-02T19:00:00", 40.0, 5.0, 0.1),
+]))
+_dates = [d["date"] for d in crossing["days"]]
+check("19:00Z buckets into the next IST day, not the same UTC day",
+      _dates == ["2026-09-02", "2026-09-03"], f"got {_dates}")
+check("the late-evening slot does not corrupt the earlier day's maximum",
+      crossing["days"][0]["tmax_c"] == 30.0,
+      f"got {crossing['days'][0]['tmax_c']}")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
