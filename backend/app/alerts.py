@@ -25,8 +25,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from . import advisory as adv
+from .config import get_settings
 from . import i18n
-from .providers import nwp
+from .providers import nwp, sachet
 from .schemas import (AlertEvent, Persona, Provenance, Severity, Subscription)
 
 log = logging.getLogger(__name__)
@@ -214,6 +215,80 @@ async def scan_location(lat: float, lon: float, area: str) -> AlertEvent | None:
         expires=datetime.fromisoformat(worst_day["date"]) + timedelta(days=1),
         provenance=fc["provenance"],
     )
+
+
+# ---------------------------------------------------------------- SACHET poll
+# SACHET is HTTP-pull, not push: there is no socket the feed can call back on,
+# so "how does the data reach the agent" is answered by a timer. One GET per
+# interval, diffed against what we have already fanned out.
+#
+# In-process like SUBSCRIPTIONS, and for the same single-worker reason -- with
+# two workers each would keep its own seen-set and dispatch the same alert
+# twice. That is the same partitioning bug --workers 1 already guards against.
+SEEN_ALERT_IDS: set[str] = set()
+_SACHET_STATE: dict = {"polls": 0, "last_poll": None, "seeded": False,
+                       "last_error": None, "dispatched_total": 0}
+
+
+async def poll_sachet(*, replay: bool = False) -> dict:
+    """Fetch the live feed and dispatch anything we have not seen before.
+
+    The first poll seeds the seen-set without dispatching: a live feed always
+    carries alerts already in force, and fanning those out on boot would page
+    every subscriber on every restart. `replay=True` overrides that for a
+    demo, so the dissemination path can be shown against real warnings.
+    """
+    s = get_settings()
+    try:
+        events = await sachet.recent_events()
+    except Exception as exc:                       # noqa: BLE001
+        _SACHET_STATE["last_error"] = repr(exc)
+        log.warning("SACHET poll failed: %r", exc)
+        return {"polled": 0, "new": 0, "dispatched": 0, "seeded": False,
+                "error": repr(exc)}
+
+    _SACHET_STATE["polls"] += 1
+    _SACHET_STATE["last_poll"] = datetime.now(timezone.utc).isoformat()
+    _SACHET_STATE["last_error"] = None
+
+    fresh = [e for e in events if e.id not in SEEN_ALERT_IDS]
+    for e in events:
+        SEEN_ALERT_IDS.add(e.id)
+
+    seeding = (not _SACHET_STATE["seeded"]
+               and s.sachet_seed_on_first_poll and not replay)
+    _SACHET_STATE["seeded"] = True
+    if seeding:
+        log.info("SACHET seeded with %d alerts already in force", len(events))
+        return {"polled": len(events), "new": len(fresh), "dispatched": 0,
+                "seeded": True}
+
+    to_send = events if replay else fresh
+    results = [dispatch(e) for e in to_send]
+    delivered = sum(r["matched"] for r in results)
+    _SACHET_STATE["dispatched_total"] += len(results)
+    return {"polled": len(events), "new": len(fresh),
+            "dispatched": len(results), "deliveries": delivered,
+            "seeded": False, "replay": replay}
+
+
+async def sachet_loop() -> None:
+    """Background poll loop. Started on app startup; cancelled on shutdown."""
+    s = get_settings()
+    interval = max(60, s.sachet_poll_seconds)
+    log.info("SACHET poll loop starting (every %ds)", interval)
+    while True:
+        try:
+            await poll_sachet()
+        except asyncio.CancelledError:
+            raise
+        except Exception:                          # noqa: BLE001
+            log.exception("SACHET poll loop iteration failed")
+        await asyncio.sleep(interval)
+
+
+def sachet_state() -> dict:
+    return dict(_SACHET_STATE, seen_ids=len(SEEN_ALERT_IDS))
 
 
 def simulate(area: str, lat: float, lon: float, severity: Severity,

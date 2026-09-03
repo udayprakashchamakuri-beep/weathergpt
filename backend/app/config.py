@@ -102,6 +102,26 @@ class Settings(BaseSettings):
     # of this project throttled as one abusive client.
     metno_contact: str = ""
 
+    # --- NDMA SACHET (authoritative alerts, no key) ----------------------
+    # SACHET is NDMA's public CAP dissemination portal. It carries IMD, CWC
+    # and state SDMA warnings, geo-tagged and colour-coded, with no key and
+    # no IP whitelisting -- which is the only reason this deployment can show
+    # an authoritative provenance chip at all while the IMD key is pending.
+    # See providers/sachet.py. The endpoint backs NDMA's own public alert
+    # map, so poll it politely: one request per interval, cached in between.
+    sachet_alerts_url: str = (
+        "https://sachet.ndma.gov.in/cap_public_website/FetchAllAlertDetails")
+    sachet_user_agent: str = "WeatherGPT-SIH26068/0.4 (+https://sachet.ndma.gov.in)"
+    # 5 minutes. The feed is refreshed by the issuing agencies, not on a fixed
+    # cycle, so this is a politeness floor rather than a freshness target.
+    sachet_poll_seconds: int = 300
+    enable_sachet_poll: bool = True
+    # First poll seeds the seen-set WITHOUT dispatching. A live feed carries
+    # dozens of alerts already in force; fanning all of them out on boot would
+    # look like a national emergency and would spam every subscriber on every
+    # restart. Set false only to demo the fan-out against real alerts.
+    sachet_seed_on_first_poll: bool = True
+
     @property
     def metno_user_agent(self) -> str:
         contact = self.metno_contact.strip() or "METNO_CONTACT-not-set"

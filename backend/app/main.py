@@ -6,6 +6,7 @@ UI:   http://localhost:8000/
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -20,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from . import alerts, i18n, nlu, security, tools
 from .cache import response_cache
 from .config import get_settings
-from .providers import geocode, imd, nwp
+from .providers import geocode, imd, nwp, sachet
 from .schemas import (AlertEvent, ChatRequest, ChatResponse, Intent, Persona,
                       Place, Severity)
 
@@ -55,6 +56,32 @@ async def _warn_on_unsafe_config() -> None:
         logging.getLogger("weathergpt.startup").error("CONFIG: %s", problem)
 
 
+# SACHET is a pull feed, so ingest is a timer rather than a callback. The task
+# handle is kept so shutdown can cancel it instead of leaving a poll in flight.
+_SACHET_TASK: asyncio.Task | None = None
+
+
+@app.on_event("startup")
+async def _start_sachet_poll() -> None:
+    global _SACHET_TASK
+    if not settings.enable_sachet_poll:
+        logging.getLogger("weathergpt.startup").info(
+            "SACHET polling disabled (ENABLE_SACHET_POLL=false)")
+        return
+    _SACHET_TASK = asyncio.create_task(alerts.sachet_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_sachet_poll() -> None:
+    if _SACHET_TASK is None:
+        return
+    _SACHET_TASK.cancel()
+    try:
+        await _SACHET_TASK
+    except asyncio.CancelledError:
+        pass
+
+
 # ------------------------------------------------------------------ health
 @app.get("/api/health")
 async def health():
@@ -70,12 +97,16 @@ async def health():
             # a live degradation from whoever is watching this endpoint.
             "nwp": nwp.status(),
             "reanalysis": "ERA5 archive",
+            # Authoritative alert ingest. This is what lets an answer carry an
+            # authoritative provenance chip while the IMD key is pending.
+            "alerts_feed": await sachet.status(),
             "language": ("bhashini" if settings.bhashini_api_key
                          else "bundled templates + on-device speech"),
             "llm_router": settings.llm_provider,
         },
         "cache": {"response": response_cache.stats()},
         "subscriptions": len(alerts.SUBSCRIPTIONS),
+        "alert_ingest": alerts.sachet_state(),
         # Open WebSocket clients currently in the alert fan-out set.
         "live_connections": len(alerts.CONNECTIONS),
         "languages": list(i18n.LANGUAGES),
@@ -299,6 +330,33 @@ async def api_scan(place: str | None = None, lat: float | None = None,
         return {"fired": False, "place": p.model_dump(),
                 "message": "no threshold exceeded in the next 3 days"}
     return {"fired": True, **alerts.dispatch(event)}
+
+
+@app.post("/api/alerts/poll",
+          dependencies=[Depends(security.require_demo_token)])
+async def api_poll_sachet(replay: bool = False):
+    """Pull the NDMA SACHET feed now and disseminate anything new.
+
+    The background loop already does this on a timer; this is the manual
+    trigger for a demo, where waiting five minutes for the next tick is not an
+    option. `replay=true` re-dispatches every alert currently in force rather
+    than only the unseen ones, so the fan-out can be shown against real
+    warnings on a day when nothing new has been issued.
+    """
+    return await alerts.poll_sachet(replay=replay)
+
+
+@app.get("/api/alerts/live")
+async def api_live_alerts(limit: int = 25):
+    """Read-through view of the authoritative feed: what NDMA is carrying
+    right now, normalised to the internal contract. Ungated and read-only --
+    this publishes nothing and fans out nothing."""
+    events = await sachet.recent_events()
+    return {
+        "count": len(events),
+        "source": "NDMA SACHET (CAP)",
+        "alerts": [e.model_dump(mode="json") for e in events[:limit]],
+    }
 
 
 @app.post("/api/alerts/simulate",

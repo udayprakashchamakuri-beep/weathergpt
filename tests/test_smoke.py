@@ -375,5 +375,102 @@ check("the late-evening slot does not corrupt the earlier day's maximum",
       crossing["days"][0]["tmax_c"] == 30.0,
       f"got {crossing['days'][0]['tmax_c']}")
 
+# ------------------------------------- 8. NDMA SACHET alert normalisation
+# In-process against a captured row from the live feed: no key, no network,
+# no running server. SACHET is the authoritative alert path while the IMD key
+# is pending, so a mistake here mislabels a real warning or drops it. The
+# centroid check matters most -- the feed publishes "lon,lat" while the rest
+# of this service uses lat/lon, and swapping them puts an Assam thunderstorm
+# in the Indian Ocean.
+print("")
+print("[8] NDMA SACHET alert normalisation")
+
+from app.providers import sachet as _sx                   # noqa: E402
+
+_ROW = {
+    "severity": "WATCH",
+    "identifier": 1788465350602010,
+    "effective_start_time": "Fri Sep 04 01:22:00 IST 2026",
+    "effective_end_time": "Fri Sep 04 04:22:00 IST 2026",
+    "disaster_type": "Thunderstorm with Lightning",
+    "area_description": "4 districts of Assam",
+    "warning_message": "IMD Guwahati has issued forecast for Thunderstorm "
+                       "with Lightning. Issued in Public Interest by ASDMA.",
+    "severity_color": "yellow",
+    "centroid": "95.05437771692465,27.06182950319295",
+    "alert_source": "IMD Shillong",
+    "area_covered": 10851.776608053555,
+    "actual_lang": "en",
+}
+
+# --- 1. centroid is lon,lat and must not be swapped ------------------------
+_c = _sx.parse_centroid(_ROW["centroid"])
+check("centroid parses to (lat, lon), not (lon, lat)",
+      _c is not None and abs(_c[0] - 27.0618) < 0.001 and abs(_c[1] - 95.0544) < 0.001,
+      f"got {_c}")
+check("an Assam alert lands in Assam, not the Indian Ocean",
+      _c is not None and 22 < _c[0] < 30 and 89 < _c[1] < 97, f"got {_c}")
+check("malformed centroid is rejected, not guessed",
+      _sx.parse_centroid("not-a-point") is None)
+check("out-of-range centroid is rejected", _sx.parse_centroid("400,900") is None)
+check("missing centroid is rejected", _sx.parse_centroid(None) is None)
+
+# --- 2. severity comes off IMD's own colour ladder -------------------------
+check("severity_color yellow -> YELLOW", _sx.severity_of(_ROW) is _Sev.YELLOW)
+check("severity_color orange -> ORANGE",
+      _sx.severity_of({"severity_color": "orange"}) is _Sev.ORANGE)
+check("severity_color red -> RED", _sx.severity_of({"severity_color": "red"}) is _Sev.RED)
+check("word 'WARNING' falls back to RED",
+      _sx.severity_of({"severity": "WARNING"}) is _Sev.RED)
+check("an unknown severity degrades to YELLOW, never to none",
+      _sx.severity_of({"severity": "???"}) is _Sev.YELLOW)
+
+# --- 3. Java-style timestamps ----------------------------------------------
+_t = _sx.parse_ts("Fri Sep 04 01:22:00 IST 2026")
+check("IST timestamp parses to the right instant",
+      _t is not None and _t.year == 2026 and _t.month == 9 and _t.day == 4
+      and _t.hour == 1 and _t.utcoffset().total_seconds() == 19800, f"got {_t}")
+check("a malformed timestamp returns None rather than raising",
+      _sx.parse_ts("not a date") is None)
+
+# --- 4. area -> geofence radius, clamped -----------------------------------
+check("10851 km2 becomes a ~58.8 km radius",
+      abs(_sx.radius_km(10851.776608053555) - 58.8) < 0.2,
+      f"got {_sx.radius_km(10851.776608053555)}")
+check("a state-sized area is clamped to 300 km", _sx.radius_km(9_000_000) == 300.0)
+check("a tiny area is floored at 10 km", _sx.radius_km(1.0) == 10.0)
+check("a missing area falls back to 50 km", _sx.radius_km(None) == 50.0)
+
+# --- 5. the whole row -> AlertEvent ----------------------------------------
+_ev = _sx.to_event(_ROW)
+check("a well-formed row becomes an AlertEvent", _ev is not None)
+check("alert id is the feed's own identifier",
+      _ev is not None and _ev.id == "1788465350602010", f"got {_ev.id if _ev else None}")
+check("provenance names originator and carrier",
+      _ev is not None and _ev.provenance.source == "IMD Shillong via NDMA SACHET",
+      f"got {_ev.provenance.source if _ev else None}")
+check("a SACHET alert is marked authoritative",
+      _ev is not None and _ev.provenance.authoritative is True)
+check("headline is the hazard alone", _ev is not None and _ev.headline == "Thunderstorm with Lightning",
+      f"got {_ev.headline if _ev else None}")
+check("the area lives in its own field, not folded into the headline",
+      _ev is not None and "Assam" in _ev.area and "Assam" not in _ev.headline,
+      f"got area={_ev.area if _ev else None}")
+check("a row with no centroid is dropped, not broadcast to everyone",
+      _sx.to_event({**_ROW, "centroid": None}) is None)
+
+# --- 6. it matches the geofence it should ----------------------------------
+from app import alerts as _al                             # noqa: E402
+
+_sub_near = _al.subscribe("near@example.org", 27.0, 95.0, radius_km=25,
+                          min_severity=_Sev.YELLOW)
+_sub_far = _al.subscribe("far@example.org", 13.08, 80.27, radius_km=25,
+                         min_severity=_Sev.YELLOW)
+_matched = {s.id for s in _al.match(_ev)}
+check("a subscriber inside the SACHET footprint matches", _sub_near.id in _matched)
+check("a subscriber 2,000 km away does not", _sub_far.id not in _matched)
+_al.unsubscribe(_sub_near.id)
+_al.unsubscribe(_sub_far.id)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
