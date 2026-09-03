@@ -1,0 +1,50 @@
+{
+  "name": "WeatherGPT — Conversational Weather Intelligence",
+  "short_name": "WeatherGPT",
+  "description": "Ask about weather, forecasts, warnings, air quality and climate trends in six Indian languages. Every number carries its source.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#0b1628",
+  "theme_color": "#0b1628",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["weather", "utilities", "education"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Weather now",
+      "short_name": "Now",
+      "description": "Current conditions for your location",
+      "url": "/?q=weather+now"
+    },
+    {
+      "name": "Warnings",
+      "short_name": "Warnings",
+      "description": "Active impact-based warnings",
+      "url": "/?q=any+warning"
+    }
+  ]
+}

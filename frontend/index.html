@@ -114,6 +114,18 @@
     color:var(--muted)}
   .stat b{color:var(--ink);font-family:ui-monospace,monospace}
 </style>
+  <!-- Progressive Web App: makes this installable to a phone home screen with
+       its own icon, opening without browser chrome. The app shell is cached;
+       weather data deliberately is not. See frontend/sw.js. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0b1628">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- iOS ignores the manifest for install, so Safari needs its own tags. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WeatherGPT">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 </head>
 <body>
 
@@ -547,6 +559,89 @@ async function refreshSys(){
 refreshSys(); setInterval(refreshSys, 20000);
 
 bubble("Namaste. Ask me about weather, forecasts, warnings, air quality or long-term climate — in English, Hindi, Telugu, Tamil, Bengali or Marathi, typed or spoken.\n\nEvery number I give you carries its source and issue time. If a source is down I will tell you, not guess.", 'bot');
+
+/* ------------------------------------------------------- install / offline */
+/* Registers the service worker and surfaces a real install control.
+   Chrome fires beforeinstallprompt and lets us call prompt() from a click;
+   iOS Safari fires nothing and requires Share -> Add to Home Screen, so that
+   case gets instructions instead of a button rather than a control that would
+   do nothing. */
+let deferredInstall = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(e =>
+      console.warn('service worker registration failed', e));
+  });
+}
+
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+}
+
+function showInstall(text, handler){
+  let b = document.querySelector('#installBtn');
+  if(!b){
+    b = document.createElement('button');
+    b.id = 'installBtn';
+    b.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:60;'
+      + 'padding:10px 14px;border-radius:10px;border:1px solid var(--accent);'
+      + 'background:var(--accent);color:#04121f;font-weight:600;cursor:pointer;'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.45)';
+    document.body.appendChild(b);
+  }
+  b.textContent = text;
+  b.onclick = handler;
+}
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();               // keep the mini-infobar off
+  deferredInstall = e;
+  showInstall('Install app', async () => {
+    deferredInstall.prompt();
+    const { outcome } = await deferredInstall.userChoice;
+    if (outcome === 'accepted') document.querySelector('#installBtn')?.remove();
+    deferredInstall = null;
+  });
+});
+
+window.addEventListener('appinstalled', () => {
+  document.querySelector('#installBtn')?.remove();
+});
+
+/* iOS: no install event exists, so tell the user the actual gesture. */
+(function iosInstallHint(){
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(ios && !isStandalone()){
+    showInstall('Add to Home Screen', () => alert(
+      'To install WeatherGPT:\n\n1. Tap the Share button\n'
+      + '2. Choose "Add to Home Screen"'));
+  }
+})();
+
+/* Offline banner. The app refuses to show cached weather, so it has to say
+   plainly when it cannot fetch any -- an empty screen would read as a bug. */
+(function offlineBanner(){
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:70;'
+    + 'display:none;padding:8px 12px;text-align:center;font-size:13px;'
+    + 'background:#7f1d1d;color:#fee2e2';
+  bar.textContent = 'Offline — live weather is unavailable. '
+    + 'Nothing is shown from cache, because a stale forecast is worse than none.';
+  document.body.appendChild(bar);
+  const sync = () => { bar.style.display = navigator.onLine ? 'none' : 'block'; };
+  window.addEventListener('online', sync);
+  window.addEventListener('offline', sync);
+  sync();
+})();
+
+/* Manifest shortcuts and shared links arrive as ?q=... -- run them on load so
+   a home-screen shortcut lands on an answer, not an empty box. */
+(function runQueryParam(){
+  const q = new URLSearchParams(location.search).get('q');
+  if(q){ $('#q').value = q; setTimeout(send, 300); }
+})();
 </script>
 </body>
 </html>

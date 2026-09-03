@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import (Depends, FastAPI, HTTPException, Query, Request,
                      WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from . import alerts, i18n, nlu, security, tools
 from .cache import response_cache
@@ -380,6 +380,49 @@ async def ws_alerts(ws: WebSocket):
 
 
 # ---------------------------------------------------------------- frontend
+# ------------------------------------------------------------------- PWA
+# Served explicitly rather than via StaticFiles so each file gets the exact
+# content type and cache policy it needs. Getting these wrong is the usual
+# reason an installable app silently stops being installable.
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def manifest():
+    f = FRONTEND / "manifest.webmanifest"
+    if not f.exists():
+        raise HTTPException(404, "manifest not built")
+    return FileResponse(f, media_type="application/manifest+json")
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """The service worker must be served from the ORIGIN ROOT.
+
+    A worker can only control pages at or below its own path, so serving this
+    from /static/sw.js would scope it to /static and it would control nothing.
+    It is also sent no-cache: a browser holding an old copy of the worker is
+    the classic way a PWA gets stuck on a stale build.
+    """
+    f = FRONTEND / "sw.js"
+    if not f.exists():
+        raise HTTPException(404, "service worker not built")
+    return FileResponse(f, media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache",
+                                 "Service-Worker-Allowed": "/"})
+
+
+@app.get("/icons/{name}", include_in_schema=False)
+async def icon(name: str):
+    # Explicit allow-list, not a path join on user input: this route would
+    # otherwise be a directory traversal into the container filesystem.
+    if name not in {"icon-192.png", "icon-512.png", "icon-maskable-512.png",
+                    "apple-touch-icon.png", "favicon-32.png"}:
+        raise HTTPException(404, "no such icon")
+    f = FRONTEND / "icons" / name
+    if not f.exists():
+        raise HTTPException(404, "icon not built")
+    return FileResponse(f, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Serve the single-file UI with the demo token injected at page load.
