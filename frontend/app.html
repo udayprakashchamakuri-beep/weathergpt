@@ -279,7 +279,7 @@ body{
 
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <input id="q" type="search" placeholder="Search city or location…" autocomplete="off" aria-label="Search city or location">
+      <input id="q" type="search" placeholder="Ask a question, or search a city…" autocomplete="off" aria-label="Search city or location">
       <button id="mic" class="mic" type="button" aria-label="Ask by voice" title="Ask by voice">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
       </button>
@@ -832,6 +832,36 @@ const LANGS = [["en", "English"], ["hi", "हिन्दी"],
                ["mr", "मराठी"]];
 const SPEECH = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", bn: "bn-IN", mr: "mr-IN" };
 
+// Script -> language. Asking in Telugu and being answered in English is the
+// same failure as not supporting Telugu at all, so the language is taken from
+// what the user actually wrote rather than from a menu they may never open.
+// Devanagari is shared by Hindi and Marathi; it resolves to Hindi unless the
+// reader has explicitly chosen Marathi.
+const SCRIPTS = [
+  [/[ఀ-౿]/, "te"], [/[஀-௿]/, "ta"],
+  [/[ঀ-৿]/, "bn"], [/[ऀ-ॿ]/, "dev"],
+  [/[઀-૿]/, "gu"], [/[ಀ-೿]/, "kn"],
+  [/[ഀ-ൿ]/, "ml"], [/[਀-੿]/, "pa"],
+  [/[଀-୿]/, "or"], [/[؀-ۿ]/, "ur"]
+];
+
+function detectLang(text) {
+  for (const [re, code] of SCRIPTS) {
+    if (re.test(text)) return code === "dev"
+      ? (state.lang === "mr" ? "mr" : "hi") : code;
+  }
+  return null;                       // Latin script: leave the choice alone
+}
+
+// A place name is one or two words with no question mark. Anything longer, or
+// in an Indian script, is a question -- the search box used to send all of it
+// to the geocoder, so a Telugu question just failed to resolve as a city.
+function looksLikeQuestion(text) {
+  if (detectLang(text)) return true;
+  if (/[?？]/.test(text)) return true;
+  return text.trim().split(/\s+/).length > 2;
+}
+
 function drawLangMenu() {
   $("langmenu").innerHTML = LANGS.map(function (p) {
     const c = p[0], n = p[1], cur = (c === state.lang);
@@ -865,6 +895,14 @@ if (window.speechSynthesis) {
   speechSynthesis.onvoiceschanged = refreshVoices;
 }
 
+function hasVoiceFor(tag) {
+  if (!VOICES.length) refreshVoices();
+  const want = (tag || "").toLowerCase();
+  const base = want.split("-")[0];
+  return VOICES.some(v => v.lang.toLowerCase() === want
+                       || v.lang.toLowerCase().startsWith(base + "-"));
+}
+
 function pickVoice(tag) {
   if (!VOICES.length) refreshVoices();
   const want = (tag || "en-IN").toLowerCase();
@@ -876,18 +914,28 @@ function pickVoice(tag) {
       || null;
 }
 
-function speak(text) {
+function speak(text, lang, englishFallback) {
   if (!("speechSynthesis" in window) || !text) return;
   try {
     speechSynthesis.cancel();
-    const tag = SPEECH[state.lang] || "en-IN";
-    const u = new SpeechSynthesisUtterance(text);
+    const code = lang || state.lang;
+    let tag = SPEECH[code] || "en-IN";
+    let say = text;
+    // Reading Telugu characters with an English voice produces noise, not
+    // speech. If the device has no voice for this language, say the English
+    // sentence instead -- comprehensible beats phonetically mangled.
+    if (code !== "en" && !hasVoiceFor(tag) && englishFallback) {
+      say = englishFallback;
+      tag = "en-IN";
+    }
+    const u = new SpeechSynthesisUtterance(say);
     u.lang = tag;
     // Naming the voice explicitly matters: with only u.lang set, a device
     // without a Telugu voice may say nothing at all rather than falling back.
     const v = pickVoice(tag);
     if (v) u.voice = v;
     u.rate = 0.98;
+    text = say;
     speechSynthesis.speak(u);
   } catch (e) { /* device has no usable voice; input still works */ }
 }
@@ -910,7 +958,9 @@ function initVoice() {
   recog.onresult = function (ev) {
     const said = ev.results[0][0].transcript;
     $("q").value = said;
-    askHero(said, true).catch(function () {});
+    // The recogniser returns text in the language it was listening in, so the
+    // script is a reliable signal even when the menu was never touched.
+    askHero(said, true, detectLang(said) || state.lang).catch(function () {});
   };
   mic.addEventListener("click", function () {
     if (listening) { recog.stop(); return; }
@@ -942,7 +992,7 @@ function openSocket() {
   };
 }
 
-async function askHero(question, viaVoice) {
+async function askHero(question, viaVoice, langOverride) {
   // The hero is the product: a real question, routed and answered with
   // grounded values. It also feeds the do-this-now panel, because the
   // advisory that comes back is where the real actions live.
@@ -952,7 +1002,8 @@ async function askHero(question, viaVoice) {
     headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
     // ChatRequest carries coordinates, not a place name -- passing `place`
     // is silently dropped and the router asks which place to check.
-    body: JSON.stringify({ message: question, lang: state.lang,
+    body: JSON.stringify({ message: question,
+                           lang: langOverride || detectLang(question) || state.lang,
                            lat: state.lat, lon: state.lon })
   });
   if (!r.ok) throw new Error("chat " + r.status);
@@ -962,9 +1013,14 @@ async function askHero(question, viaVoice) {
     $("note-main").textContent = (d.advisory && d.advisory.headline) || "";
     $("note-sub").textContent =
       (d.sources || []).map(function (x) { return x.source; }).slice(0, 1).join("");
-    if (viaVoice) speak(d.answer);
+    // Speak the answer in the language it actually came back in, and hand
+    // over the English text so speak() can fall back to something audible
+    // rather than reading Telugu with an English voice.
+    if (viaVoice) speak(d.answer, d.lang, d.answer_en);
   }
   drawActs(d.advisory);
+  // Keep the menu tick in step with what the user is actually being answered in.
+  if (d.lang && d.lang !== state.lang) { state.lang = d.lang; drawLangMenu(); }
   return d;
 }
 
@@ -1018,6 +1074,22 @@ $("q").addEventListener("keydown", async (e) => {
   if (e.key !== "Enter") return;
   const v = e.target.value.trim();
   if (!v) return;
+
+  // A question goes to the router; a place name goes to the geocoder. Before
+  // this, everything went to the geocoder -- so a Telugu question was looked
+  // up as a city, failed, and the reader saw an error instead of an answer.
+  if (looksLikeQuestion(v)) {
+    const lang = detectLang(v) || state.lang;
+    $("state").textContent = "Asking…";
+    try {
+      await askHero(v, false, lang);
+      stamp(Date.now(), true);
+    } catch (err) {
+      $("state").textContent = "Could not answer that (" + err.message + ")";
+    }
+    return;
+  }
+
   state.place = v;
   $("state").textContent = "Loading " + v + "…";
   try {
@@ -1032,6 +1104,7 @@ $("q").addEventListener("keydown", async (e) => {
     $("state").textContent = "Could not load " + v + " (" + err.message + ")";
   }
 });
+
 $("track-btn").addEventListener("click", () => $("q").focus());
 
 $("langbtn").addEventListener("click", () => toggleLangMenu());
