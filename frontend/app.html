@@ -906,23 +906,24 @@ if (window.speechSynthesis) {
   speechSynthesis.onvoiceschanged = refreshVoices;
 }
 
-function hasVoiceFor(tag) {
-  if (!VOICES.length) refreshVoices();
-  const want = (tag || "").toLowerCase();
-  const base = want.split("-")[0];
-  return VOICES.some(v => v.lang.toLowerCase() === want
-                       || v.lang.toLowerCase().startsWith(base + "-"));
-}
+function normTag(t) { return String(t || "").toLowerCase().replace(/_/g, "-"); }
 
-function pickVoice(tag) {
+// Voices report their language inconsistently: "te-IN", "te_IN", plain "te",
+// and some engines only say so in the name. Matching on an exact "te-" prefix
+// missed all but the first form, which made a device look voice-less when it
+// was not.
+function voicesFor(tag) {
   if (!VOICES.length) refreshVoices();
-  const want = (tag || "en-IN").toLowerCase();
-  const base = want.split("-")[0];
-  return VOICES.find(v => v.lang.toLowerCase() === want)
-      || VOICES.find(v => v.lang.toLowerCase().startsWith(base + "-"))
-      || VOICES.find(v => v.lang.toLowerCase() === "en-in")
-      || VOICES.find(v => v.lang.toLowerCase().startsWith("en"))
-      || null;
+  const w = normTag(tag), b = w.split("-")[0];
+  return VOICES.filter(v => {
+    const l = normTag(v.lang);
+    return l === w || l === b || l.startsWith(b + "-");
+  });
+}
+function hasVoiceFor(tag) { return voicesFor(tag).length > 0; }
+function pickVoice(tag) {
+  return voicesFor(tag)[0] || voicesFor("en-IN")[0]
+      || VOICES.find(v => normTag(v.lang).startsWith("en")) || null;
 }
 
 function speak(text, lang, englishFallback) {

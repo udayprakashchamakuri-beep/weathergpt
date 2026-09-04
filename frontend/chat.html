@@ -231,32 +231,57 @@ function refreshVoices() {
   catch (e) { VOICES = []; }
 }
 if (window.speechSynthesis) { refreshVoices(); speechSynthesis.onvoiceschanged = refreshVoices; }
-function hasVoiceFor(tag) {
+function normTag(t) { return String(t || "").toLowerCase().replace(/_/g, "-"); }
+
+// Voices report their language inconsistently: "te-IN", "te_IN", plain "te",
+// and some engines only say so in the name. Matching on an exact "te-" prefix
+// missed all but the first form, which made a device look voice-less when it
+// was not.
+function voicesFor(tag) {
   if (!VOICES.length) refreshVoices();
-  const w = (tag || "").toLowerCase(), b = w.split("-")[0];
-  return VOICES.some(v => v.lang.toLowerCase() === w || v.lang.toLowerCase().startsWith(b + "-"));
+  const w = normTag(tag), b = w.split("-")[0];
+  return VOICES.filter(v => {
+    const l = normTag(v.lang);
+    return l === w || l === b || l.startsWith(b + "-");
+  });
 }
+function hasVoiceFor(tag) { return voicesFor(tag).length > 0; }
 function pickVoice(tag) {
-  if (!VOICES.length) refreshVoices();
-  const w = (tag || "en-IN").toLowerCase(), b = w.split("-")[0];
-  return VOICES.find(v => v.lang.toLowerCase() === w)
-      || VOICES.find(v => v.lang.toLowerCase().startsWith(b + "-"))
-      || VOICES.find(v => v.lang.toLowerCase().startsWith("en")) || null;
+  return voicesFor(tag)[0] || voicesFor("en-IN")[0]
+      || VOICES.find(v => normTag(v.lang).startsWith("en")) || null;
 }
-// Reading Telugu characters with an English voice is noise, not speech. With no
-// voice for the language, say the English sentence instead.
+
+// Returns a short note about what was actually spoken, so a fallback is
+// visible rather than looking like the app ignoring the selected language.
 function speak(text, lang, englishFallback) {
-  if (!("speechSynthesis" in window) || !text) return;
+  if (!("speechSynthesis" in window) || !text) return "speech not supported";
   try {
     speechSynthesis.cancel();
     const code = lang || state.answerLang;
-    let tag = SPEECH[code] || "en-IN", say = text;
-    if (code !== "en" && !hasVoiceFor(tag) && englishFallback) { say = englishFallback; tag = "en-IN"; }
+    let tag = SPEECH[code] || "en-IN", say = text, note = "";
+    if (code !== "en" && !hasVoiceFor(tag)) {
+      // The browser cannot synthesise a script it has no voice for; forcing it
+      // produces noise. Say the English sentence and be explicit about why.
+      if (englishFallback) { say = englishFallback; tag = "en-IN"; }
+      note = "no " + code + " voice on this device — spoke English";
+    }
     const u = new SpeechSynthesisUtterance(say);
     u.lang = tag; u.rate = 0.98;
-    const v = pickVoice(tag); if (v) u.voice = v;
+    const v = pickVoice(tag);
+    if (v) u.voice = v;
     speechSynthesis.speak(u);
-  } catch (e) { /* no usable voice; the text is still on screen */ }
+    return note || ((v && v.name) ? "spoken with " + v.name : "spoken");
+  } catch (e) { return "speech failed"; }
+}
+
+// What this browser can actually speak. Surfaced in the UI because "why is it
+// English?" is otherwise unanswerable from the outside.
+function voiceReport() {
+  refreshVoices();
+  const langs = [...new Set(VOICES.map(v => normTag(v.lang)))].sort();
+  const mine = LANGS.filter(([c]) => c !== "auto" && hasVoiceFor(SPEECH[c]))
+                    .map(([c]) => c);
+  return { total: VOICES.length, langs, speakable: mine };
 }
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -335,8 +360,14 @@ function addAnswer(d) {
       '<div class="chips">' + chips + '</div>' +
     '</div>';
 
-  wrap.querySelector(".speak").addEventListener("click", () =>
-    speak(d.answer, d.lang, d.answer_en));
+  const btn = wrap.querySelector(".speak");
+  btn.addEventListener("click", () => {
+    const note = speak(d.answer, d.lang, d.answer_en);
+    if (note && note.indexOf("no ") === 0) {
+      btn.textContent = "🔊 " + note;
+      btn.title = "Install the language's speech pack, or try Edge or a phone.";
+    }
+  });
   $("thread").appendChild(wrap); scrollDown();
 
   $("src-txt").textContent = auth ? "Authoritative" : "Model";
