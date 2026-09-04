@@ -501,7 +501,7 @@ const $ = (id) => document.getElementById(id);
 const API = "";                        // same origin
 const TOKEN = window.__DEMO_TOKEN__ || "";
 const authHeaders = () => TOKEN ? { "X-Demo-Token": TOKEN } : {};
-const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480, lang: "en",
+const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480, lang: "auto", answerLang: "en",
                 fcDays: [], fcExpanded: false };
 
 function clock() {
@@ -825,12 +825,12 @@ function stamp(at, live) {
 }
 
 /* ---------------------------------------------------------------- language */
-const LANGS = [["en", "English"], ["hi", "हिन्दी"],
+const LANGS = [["auto", "Auto — detect"], ["en", "English"], ["hi", "हिन्दी"],
                ["te", "తెలుగు"],
                ["ta", "தமிழ்"],
                ["bn", "বাংলা"],
                ["mr", "मराठी"]];
-const SPEECH = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", bn: "bn-IN", mr: "mr-IN" };
+const SPEECH = { auto: "en-IN", en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", bn: "bn-IN", mr: "mr-IN" };
 
 // Script -> language. Asking in Telugu and being answered in English is the
 // same failure as not supporting Telugu at all, so the language is taken from
@@ -1019,12 +1019,15 @@ async function askHero(question, viaVoice, langOverride) {
     if (viaVoice) speak(d.answer, d.lang, d.answer_en);
   }
   drawActs(d.advisory);
-  // Keep the menu tick in step with what the user is actually being answered in.
-  if (d.lang && d.lang !== state.lang) { state.lang = d.lang; drawLangMenu(); }
+  // Remember what it answered in, for speech -- but leave the menu preference
+  // alone. Overwriting "auto" with one answer's language would silently pin
+  // the reader to whatever they happened to ask first.
+  if (d.lang) state.answerLang = d.lang;
   return d;
 }
 
 const DEFAULT_Q = {
+  auto: "Do I need an umbrella this evening?",
   en: "Do I need an umbrella this evening?",
   hi: "क्या मुझे आज शाम छाता चाहिए?",
   te: "ఈ సాయంత్రం గొడుగు కావాలా?",
