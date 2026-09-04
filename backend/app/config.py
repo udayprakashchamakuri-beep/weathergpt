@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     sachet_alerts_url: str = (
         "https://sachet.ndma.gov.in/cap_public_website/FetchAllAlertDetails")
     sachet_user_agent: str = "WeatherGPT-SIH26068/0.4 (+https://sachet.ndma.gov.in)"
+    # Location-wise query. Unlike the global feed this returns `area_json`,
+    # the alert's real CAP footprint, and NDMA filters server-side against
+    # that polygon -- so matching is exact rather than a disc approximation.
+    sachet_location_alerts_url: str = (
+        "https://sachet.ndma.gov.in/cap_public_website/FetchLocationWiseAlerts")
+    # Confirm every coarse geofence hit against the real polygon before
+    # dispatching. Costs one cached upstream call per distinct subscriber
+    # point per poll; set false to fall back to the disc test alone.
+    sachet_precise_match: bool = True
     # 5 minutes. The feed is refreshed by the issuing agencies, not on a fixed
     # cycle, so this is a politeness floor rather than a freshness target.
     sachet_poll_seconds: int = 300

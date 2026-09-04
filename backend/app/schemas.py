@@ -148,4 +148,8 @@ class AlertEvent(BaseModel):
     effective: datetime
     expires: datetime | None = None
     provenance: Provenance
+    # Exact CAP footprint as GeoJSON (Polygon / MultiPolygon), when the
+    # source publishes one. When present the geofence matcher does real
+    # point-in-polygon instead of approximating the area as a disc.
+    geometry: dict | None = None
     matched_subscribers: int = 0

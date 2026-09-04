@@ -25,6 +25,7 @@ real User-Agent, and the response cached for the whole interval.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -156,6 +157,162 @@ def headline_of(row: dict) -> str:
     return msg if len(msg) <= 160 else msg[:157].rsplit(" ", 1)[0] + "..."
 
 
+def parse_area_json(raw) -> dict | None:
+    """SACHET's `area_json` is the alert's real CAP footprint as GeoJSON.
+
+    Only FetchLocationWiseAlerts returns it; the global FetchAllAlertDetails
+    feed does not, which is why the disc approximation still exists as the
+    fallback. Coordinates are GeoJSON order -- [lon, lat].
+    """
+    if not raw:
+        return None
+    geom = raw
+    if isinstance(raw, str):
+        try:
+            geom = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(geom, dict):
+        return None
+    if geom.get("type") not in ("Polygon", "MultiPolygon"):
+        return None
+    if not isinstance(geom.get("coordinates"), list) or not geom["coordinates"]:
+        return None
+    return geom
+
+
+def _ring_contains(lat: float, lon: float, ring: list) -> bool:
+    """Ray casting against one linear ring. Ring points are [lon, lat]."""
+    inside = False
+    n = len(ring)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        try:
+            xi, yi = float(ring[i][0]), float(ring[i][1])
+            xj, yj = float(ring[j][0]), float(ring[j][1])
+        except (TypeError, ValueError, IndexError):
+            j = i
+            continue
+        if (yi > lat) != (yj > lat):
+            denom = (yj - yi) or 1e-12
+            if lon < (xj - xi) * (lat - yi) / denom + xi:
+                inside = not inside
+        j = i
+    return inside
+
+
+def point_in_geometry(lat: float, lon: float, geom: dict | None) -> bool:
+    """Exact point-in-polygon against a CAP footprint.
+
+    Honours interior rings: a point inside a hole is outside the polygon.
+    Returns False for anything unusable, so a malformed footprint falls back
+    to the caller's coarse test rather than silently matching everyone.
+    """
+    if not geom:
+        return False
+    polys = (geom.get("coordinates") or []) if geom.get("type") == "MultiPolygon"         else [geom.get("coordinates") or []]
+    for poly in polys:
+        if not poly:
+            continue
+        if not _ring_contains(lat, lon, poly[0]):
+            continue
+        in_hole = any(_ring_contains(lat, lon, hole) for hole in poly[1:])
+        if not in_hole:
+            return True
+    return False
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def distance_to_geometry_km(lat: float, lon: float, geom: dict | None) -> float | None:
+    """How far a point sits outside a CAP footprint. 0.0 when inside.
+
+    Exact containment alone is too strict for dissemination: a subscriber who
+    asked to hear about hazards within 60 km of them still wants a warning
+    whose polygon stops 3 km short of their village. Containment answers
+    "where is the hazard"; the subscriber's radius answers "how far away do I
+    still care", and both belong in the decision.
+
+    Distance is approximated as the smallest great-circle distance to any
+    vertex of the footprint. CAP polygons here are dense -- hundreds of points
+    along a district boundary -- so vertex distance tracks true edge distance
+    closely, and it never under-reports in a way that would suppress a
+    warning: a nearer edge midpoint only makes the real distance smaller,
+    which can only add recipients, not drop them.
+
+    Returns None when there is no usable footprint, so the caller falls back
+    to the disc test rather than treating "unknown" as "far away".
+    """
+    if not geom:
+        return None
+    if point_in_geometry(lat, lon, geom):
+        return 0.0
+    polys = (geom.get("coordinates") or []) if geom.get("type") == "MultiPolygon"         else [geom.get("coordinates") or []]
+    best: float | None = None
+    for poly in polys:
+        for ring in poly or []:
+            for pt in ring or []:
+                try:
+                    plon, plat = float(pt[0]), float(pt[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                d = _haversine_km(lat, lon, plat, plon)
+                if best is None or d < best:
+                    best = d
+    return best
+
+
+async def alerts_for_point(lat: float, lon: float,
+                           radius_km: float = 25.0) -> list[AlertEvent]:
+    """Alerts affecting one point, carrying their exact CAP footprint.
+
+    This is the precise path. NDMA filters server-side against the real
+    polygon, and returns `area_json` so the match can also be verified here.
+    Cached per rounded point + radius for the poll interval, so a hundred
+    subscribers in one town cost one upstream call.
+    """
+    s = get_settings()
+    r = max(1, min(1000, int(round(radius_km))))
+    key_pt = (round(lat, 2), round(lon, 2), r)
+    ck = upstream_cache.key("sachet:point", *key_pt)
+    rows = upstream_cache.get(ck)
+    if rows is None:
+        url = s.sachet_location_alerts_url
+        headers = {"User-Agent": getattr(s, "sachet_user_agent", "WeatherGPT/1.0"),
+                   "content-Type": "application/json"}
+        try:
+            async with httpx.AsyncClient(timeout=s.http_timeout) as client:
+                resp = await client.post(
+                    url, headers=headers,
+                    params={"lat": lat, "long": lon, "radius": str(r)})
+                resp.raise_for_status()
+                payload = resp.json()
+            rows = payload.get("alerts") or [] if isinstance(payload, dict) else []
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("SACHET point query failed (%s,%s r=%s): %r",
+                        lat, lon, r, exc)
+            return []
+        upstream_cache.set(ck, rows, ttl=max(60, s.sachet_poll_seconds))
+
+    out: list[AlertEvent] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ev = to_event(row)
+        if ev is not None:
+            out.append(ev)
+    return out
+
+
 def to_event(row: dict) -> AlertEvent | None:
     """Normalise one SACHET row into the internal AlertEvent contract.
 
@@ -186,6 +343,7 @@ def to_event(row: dict) -> AlertEvent | None:
         lat=lat,
         lon=lon,
         radius_km=radius_km(row.get("area_covered")),
+        geometry=parse_area_json(row.get("area_json")),
         effective=effective,
         expires=expires,
         provenance=Provenance(

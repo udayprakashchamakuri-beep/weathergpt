@@ -137,15 +137,69 @@ def unsubscribe(sub_id: str) -> bool:
 
 
 def match(event: AlertEvent) -> list[Subscription]:
-    """Spatial + severity match. ST_DWithin stands in as a haversine here."""
+    """Spatial + severity match.
+
+    Two tiers. When the event carries its real CAP footprint the test is an
+    exact point-in-polygon: a subscriber is affected only if they stand inside
+    the area the issuing agency actually drew. Without a footprint it falls
+    back to comparing distance against the disc derived from `area_covered`,
+    which over-matches -- a 14-district Rajasthan advisory becomes a ~184 km
+    circle covering places the advisory never named.
+
+    The fallback is deliberately kept: the global SACHET feed does not publish
+    `area_json`, so a coarse hit is what makes a candidate worth confirming.
+    """
     out = []
     for sub in SUBSCRIPTIONS.values():
         if SEV_ORDER.index(event.severity) < SEV_ORDER.index(sub.min_severity):
             continue
+        if event.geometry:
+            # Exact footprint: inside it, or within the distance this
+            # subscriber asked to hear about. Containment says where the
+            # hazard is; the subscriber's radius says how far away they
+            # still care.
+            gap = sachet.distance_to_geometry_km(sub.lat, sub.lon, event.geometry)
+            if gap is not None:
+                if gap <= sub.radius_km:
+                    out.append(sub)
+                continue
         d = haversine_km(event.lat, event.lon, sub.lat, sub.lon)
         if d <= event.radius_km + sub.radius_km:
             out.append(sub)
     return out
+
+
+async def confirm_precise(event: AlertEvent) -> AlertEvent:
+    """Upgrade a coarse event to its exact footprint before dispatch.
+
+    The global feed gives no geometry, so a disc match is only a candidate.
+    This asks SACHET for the alerts affecting each distinct subscriber point
+    the disc flagged; if this alert is among them it adopts the real polygon
+    returned alongside it. Responses are cached per rounded point, so a town
+    full of subscribers costs one upstream call.
+
+    Returns the event unchanged when the feed has nothing to add -- the disc
+    result then stands, which is the previous behaviour rather than a silent
+    drop.
+    """
+    s = get_settings()
+    if event.geometry or not s.sachet_precise_match:
+        return event
+    seen_pts: set = set()
+    for sub in match(event):
+        pt = (round(sub.lat, 2), round(sub.lon, 2))
+        if pt in seen_pts:
+            continue
+        seen_pts.add(pt)
+        try:
+            nearby = await sachet.alerts_for_point(sub.lat, sub.lon, sub.radius_km)
+        except Exception:                          # noqa: BLE001
+            continue
+        for cand in nearby:
+            if cand.id == event.id and cand.geometry:
+                event.geometry = cand.geometry
+                return event
+    return event
 
 
 def render_for(sub: Subscription, event: AlertEvent) -> str:
@@ -264,7 +318,8 @@ async def poll_sachet(*, replay: bool = False) -> dict:
                 "seeded": True}
 
     to_send = events if replay else fresh
-    results = [dispatch(e) for e in to_send]
+    # Confirm each candidate against its real polygon before fanning out.
+    results = [dispatch(await confirm_precise(e)) for e in to_send]
     delivered = sum(r["matched"] for r in results)
     _SACHET_STATE["dispatched_total"] += len(results)
     return {"polled": len(events), "new": len(fresh),

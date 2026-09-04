@@ -472,5 +472,103 @@ check("a subscriber 2,000 km away does not", _sub_far.id not in _matched)
 _al.unsubscribe(_sub_near.id)
 _al.unsubscribe(_sub_far.id)
 
+# ------------------------------------- 9. exact CAP footprint matching
+# The disc derived from `area_covered` over-matches: a 14-district Rajasthan
+# advisory becomes a ~184 km circle covering districts the advisory never
+# named. FetchLocationWiseAlerts returns the alert's real CAP polygon in
+# `area_json`, so when it is present the geofence does point-in-polygon
+# instead. These run offline against a hand-built footprint.
+print("")
+print("[9] exact CAP footprint matching")
+
+# A square around Guwahati, with a hole punched out of the middle.
+# GeoJSON order is [lon, lat] -- the reverse of this service's own order.
+_SQUARE = {
+    "type": "Polygon",
+    "coordinates": [
+        [[91.0, 25.5], [92.5, 25.5], [92.5, 26.5], [91.0, 26.5], [91.0, 25.5]],
+        [[91.6, 26.0], [91.9, 26.0], [91.9, 26.2], [91.6, 26.2], [91.6, 26.0]],
+    ],
+}
+_MULTI = {"type": "MultiPolygon", "coordinates": [
+    [[[91.0, 25.5], [92.5, 25.5], [92.5, 26.5], [91.0, 26.5], [91.0, 25.5]]],
+    [[[80.0, 12.8], [80.5, 12.8], [80.5, 13.4], [80.0, 13.4], [80.0, 12.8]]],
+]}
+
+check("a point inside the polygon matches",
+      _sx.point_in_geometry(26.4, 91.2, _SQUARE) is True)
+check("a point outside the polygon does not",
+      _sx.point_in_geometry(28.6, 77.2, _SQUARE) is False)
+check("a point inside an interior ring is treated as outside",
+      _sx.point_in_geometry(26.1, 91.75, _SQUARE) is False)
+check("MultiPolygon matches on its first part",
+      _sx.point_in_geometry(26.0, 91.2, _MULTI) is True)
+check("MultiPolygon matches on its second part (Chennai)",
+      _sx.point_in_geometry(13.08, 80.27, _MULTI) is True)
+check("MultiPolygon rejects a point in neither part",
+      _sx.point_in_geometry(19.07, 72.87, _MULTI) is False)
+check("a missing footprint never matches", _sx.point_in_geometry(26.0, 91.2, None) is False)
+check("a malformed footprint never matches",
+      _sx.point_in_geometry(26.0, 91.2, {"type": "Polygon", "coordinates": []}) is False)
+
+# --- area_json parsing -----------------------------------------------------
+check("area_json parses from a JSON string",
+      (_sx.parse_area_json(json.dumps(_SQUARE)) or {}).get("type") == "Polygon")
+check("area_json accepts an already-decoded dict",
+      (_sx.parse_area_json(_SQUARE) or {}).get("type") == "Polygon")
+check("a non-geometry area_json is rejected",
+      _sx.parse_area_json('{"type": "Point", "coordinates": [1, 2]}') is None)
+check("unparseable area_json is rejected, not guessed",
+      _sx.parse_area_json("{not json") is None)
+check("absent area_json is None", _sx.parse_area_json(None) is None)
+
+# --- the matcher prefers the footprint over the disc -----------------------
+_precise = _sx.to_event({**_ROW, "area_json": json.dumps(_SQUARE)})
+check("an event built from area_json carries its footprint",
+      _precise is not None and _precise.geometry is not None)
+
+# Inside the disc but OUTSIDE the real polygon: the exact test must reject it.
+# The disc alone would have matched, which is the bug this removes.
+_outside = _al.subscribe("outside@example.org", 27.6, 95.0, radius_km=25,
+                         min_severity=_Sev.YELLOW)
+_inside = _al.subscribe("inside@example.org", 26.0, 91.2, radius_km=25,
+                        min_severity=_Sev.YELLOW)
+_ids = {s.id for s in _al.match(_precise)}
+check("a subscriber inside the real polygon matches", _inside.id in _ids)
+check("a subscriber far outside the polygon is rejected even though the disc covered them",
+      _outside.id not in _ids)
+
+# --- distance to the footprint, bounded by the subscriber's own radius ----
+check("a point inside the footprint is 0 km from it",
+      _sx.distance_to_geometry_km(26.0, 91.2, _SQUARE) == 0.0)
+check("a point just outside reports a small positive gap",
+      0 < (_sx.distance_to_geometry_km(26.6, 91.2, _SQUARE) or 0) < 30,
+      f"got {_sx.distance_to_geometry_km(26.6, 91.2, _SQUARE)}")
+check("a distant point reports a large gap",
+      (_sx.distance_to_geometry_km(28.6, 77.2, _SQUARE) or 0) > 500)
+check("no footprint reports None, so the caller falls back to the disc",
+      _sx.distance_to_geometry_km(26.0, 91.2, None) is None)
+
+# A subscriber 65 km outside the polygon: heard only if they asked for it.
+_wide = _al.subscribe("wide@example.org", 27.1, 91.7, radius_km=200,
+                      min_severity=_Sev.YELLOW)
+_narrow = _al.subscribe("narrow@example.org", 27.1, 91.7, radius_km=5,
+                        min_severity=_Sev.YELLOW)
+_ids2 = {s.id for s in _al.match(_precise)}
+check("a subscriber outside the polygon but inside their own radius is reached",
+      _wide.id in _ids2)
+check("the same point with a tight radius is not",
+      _narrow.id not in _ids2)
+_al.unsubscribe(_wide.id)
+_al.unsubscribe(_narrow.id)
+
+# The same two against the coarse event: the disc over-matches, which is why
+# confirm_precise() exists.
+_coarse = _sx.to_event(_ROW)
+_coarse_ids = {s.id for s in _al.match(_coarse)}
+check("the disc fallback still matches the near subscriber", _outside.id in _coarse_ids)
+_al.unsubscribe(_outside.id)
+_al.unsubscribe(_inside.id)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
