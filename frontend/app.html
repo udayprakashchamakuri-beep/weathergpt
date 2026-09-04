@@ -501,7 +501,8 @@ const $ = (id) => document.getElementById(id);
 const API = "";                        // same origin
 const TOKEN = window.__DEMO_TOKEN__ || "";
 const authHeaders = () => TOKEN ? { "X-Demo-Token": TOKEN } : {};
-const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480, lang: "en" };
+const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480, lang: "en",
+                fcDays: [], fcExpanded: false };
 
 function clock() {
   const d = new Date();
@@ -549,6 +550,19 @@ function iconFor(label = "") {
   if (s.includes("partly") || s.includes("sun") || s.includes("clear")) return ICONS.part;
   return ICONS.cloud;
 }
+function renderForecast() {
+  const raw = state.fcDays || [];
+  if (!raw.length) return;
+  const n = state.fcExpanded ? raw.length : 5;
+  drawForecast(raw.slice(0, n).map(d => ({
+    day: DAY[new Date(d.date + "T00:00:00").getDay()] || "",
+    label: sentence(d.condition || "Cloudy"),
+    mm: Math.round(d.rain_mm ?? 0),
+    lo: Math.round(d.tmin_c ?? 0),
+    hi: Math.round(d.tmax_c ?? 0)
+  })));
+}
+
 function drawForecast(days) {
   const maxMm = Math.max(1, ...days.map(d => d.mm || 0));
   $("forecast").innerHTML = days.map(d => `
@@ -633,6 +647,9 @@ function sentence(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 async function loadForecast(place) {
   const fc = await api(`/api/weather/forecast?place=${encodeURIComponent(place)}&days=7`);
   const raw = fc.days || [];
+  state.fcDays = raw;
+  renderForecast();
+
   const days = raw.slice(0, 5).map(d => ({
     day: DAY[new Date(d.date + "T00:00:00").getDay()] || "",
     label: sentence(d.condition || "Cloudy"),
@@ -640,7 +657,7 @@ async function loadForecast(place) {
     lo: Math.round(d.tmin_c ?? 0),
     hi: Math.round(d.tmax_c ?? 0)
   }));
-  if (days.length) drawForecast(days);
+  // renderForecast() above already drew it; `days` stays for the checks below.
 
   const t = raw[0];
   if (t) {
@@ -835,14 +852,44 @@ function toggleLangMenu(open) {
 /* ------------------------------------------------------------------ voice */
 let recog = null, listening = false;
 
+// getVoices() is empty until the engine has loaded them, and on some
+// platforms that happens after first paint. Cache them and refresh on the
+// voiceschanged event, or the first spoken answer of a demo is silent.
+let VOICES = [];
+function refreshVoices() {
+  try { VOICES = window.speechSynthesis ? speechSynthesis.getVoices() : []; }
+  catch (e) { VOICES = []; }
+}
+if (window.speechSynthesis) {
+  refreshVoices();
+  speechSynthesis.onvoiceschanged = refreshVoices;
+}
+
+function pickVoice(tag) {
+  if (!VOICES.length) refreshVoices();
+  const want = (tag || "en-IN").toLowerCase();
+  const base = want.split("-")[0];
+  return VOICES.find(v => v.lang.toLowerCase() === want)
+      || VOICES.find(v => v.lang.toLowerCase().startsWith(base + "-"))
+      || VOICES.find(v => v.lang.toLowerCase() === "en-in")
+      || VOICES.find(v => v.lang.toLowerCase().startsWith("en"))
+      || null;
+}
+
 function speak(text) {
   if (!("speechSynthesis" in window) || !text) return;
   try {
     speechSynthesis.cancel();
+    const tag = SPEECH[state.lang] || "en-IN";
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = SPEECH[state.lang] || "en-IN";
+    u.lang = tag;
+    // Naming the voice explicitly matters: with only u.lang set, a device
+    // without a Telugu voice may say nothing at all rather than falling back.
+    const v = pickVoice(tag);
+    if (v) u.voice = v;
+    u.rate = 0.98;
     speechSynthesis.speak(u);
-  } catch (e) { /* no voice installed for this language on this device */ }
+  } catch (e) { /* device has no usable voice; input still works */ }
 }
 
 function initVoice() {
@@ -1003,7 +1050,16 @@ $("langmenu").addEventListener("click", async (e) => {
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#langmenu") && !e.target.closest("#langbtn")) toggleLangMenu(false);
 });
-$("full-fc").addEventListener("click", (e) => { e.preventDefault(); location.href = "/"; });
+// "View full forecast" expands the list in place. It used to do
+// location.href = "/", which dropped the reader onto the chat UI -- a
+// different-looking page with no forecast on it. A link that says "view
+// more of this" must not navigate away from this.
+$("full-fc").addEventListener("click", (e) => {
+  e.preventDefault();
+  state.fcExpanded = !state.fcExpanded;
+  renderForecast();
+  $("full-fc").textContent = state.fcExpanded ? "Show fewer days ←" : "View full forecast →";
+});
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
