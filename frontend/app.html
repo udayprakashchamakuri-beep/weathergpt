@@ -952,6 +952,10 @@ function speak(text, lang, englishFallback) {
   } catch (e) { /* device has no usable voice; input still works */ }
 }
 
+// Silence, in ms, that ends a spoken question.
+var SILENCE_MS = 2000;
+var heard = "", silenceTimer = null;
+
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const mic = $("mic");
@@ -962,20 +966,47 @@ function initVoice() {
     return;
   }
   recog = new SR();
-  recog.continuous = false;
-  recog.interimResults = false;
-  recog.onstart = function () { listening = true; mic.classList.add("on"); };
-  recog.onend = function () { listening = false; mic.classList.remove("on"); };
-  recog.onerror = function () { listening = false; mic.classList.remove("on"); };
+  // continuous + interim, ended by a silence timer. With continuous off the
+  // engine finalises at the first pause, so a spoken sentence was cut to its
+  // first couple of words and sent before the rest was even listened for.
+  recog.continuous = true;
+  recog.interimResults = true;
+
+  recog.onstart = function () { listening = true; heard = ""; mic.classList.add("on"); };
+
   recog.onresult = function (ev) {
-    const said = ev.results[0][0].transcript;
-    $("q").value = said;
-    // The recogniser returns text in the language it was listening in, so the
-    // script is a reliable signal even when the menu was never touched.
-    askHero(said, true, detectLang(said) || state.lang).catch(function () {});
+    var interim = "";
+    for (var i = ev.resultIndex; i < ev.results.length; i++) {
+      var r = ev.results[i];
+      if (r.isFinal) heard += r[0].transcript + " ";
+      else interim += r[0].transcript;
+    }
+    $("q").value = (heard + interim).trim();
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(function () {
+      try { recog.stop(); } catch (e) {}
+    }, SILENCE_MS);
   };
+
+  recog.onerror = function () {
+    clearTimeout(silenceTimer);
+    listening = false; mic.classList.remove("on");
+  };
+
+  // Sent from onend, not onresult, so the whole sentence arrives once.
+  recog.onend = function () {
+    clearTimeout(silenceTimer);
+    listening = false;
+    mic.classList.remove("on");
+    var said = (heard || $("q").value || "").trim();
+    heard = "";
+    if (said) {
+      askHero(said, true, detectLang(said) || state.lang).catch(function () {});
+    }
+  };
+
   mic.addEventListener("click", function () {
-    if (listening) { recog.stop(); return; }
+    if (listening) { try { recog.stop(); } catch (e) {} return; }
     recog.lang = SPEECH[state.lang] || "en-IN";
     try { recog.start(); } catch (e) { /* already running */ }
   });

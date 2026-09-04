@@ -283,20 +283,65 @@ function voiceReport() {
                     .map(([c]) => c);
   return { total: VOICES.length, langs, speakable: mine };
 }
+// Silence, in ms, that ends a spoken question. Long enough to think mid
+// sentence, short enough not to feel stuck.
+const SILENCE_MS = 2000;
+let heard = "", silenceTimer = null;
+
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const mic = $("mic");
   if (!SR) { mic.disabled = true; mic.title = "Voice input is not supported by this browser"; return; }
   recog = new SR();
-  recog.continuous = false; recog.interimResults = false;
-  recog.onstart = () => { listening = true; mic.classList.add("on"); };
-  recog.onend = () => { listening = false; mic.classList.remove("on"); };
-  recog.onerror = () => { listening = false; mic.classList.remove("on"); };
-  recog.onresult = (ev) => { ask(ev.results[0][0].transcript, true); };
+
+  // continuous + interim, ended by a silence timer. With continuous off the
+  // engine finalises at the first pause and fires onresult once, so a spoken
+  // sentence was cut to its first couple of words and sent -- the rest was
+  // never listened for at all.
+  recog.continuous = true;
+  recog.interimResults = true;
+
+  recog.onstart = () => {
+    listening = true; heard = "";
+    mic.classList.add("on");
+    mic.title = "Listening — click to send";
+  };
+
+  recog.onresult = (ev) => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) heard += r[0].transcript + " ";
+      else interim += r[0].transcript;
+    }
+    // Show it building up, so it is obvious the whole sentence is being heard.
+    $("q").value = (heard + interim).trim();
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => { try { recog.stop(); } catch (e) {} }, SILENCE_MS);
+  };
+
+  recog.onerror = (e) => {
+    clearTimeout(silenceTimer);
+    listening = false; mic.classList.remove("on");
+    if (e && e.error === "no-speech") $("q").placeholder = "Did not catch that — try again";
+  };
+
+  // Submitting here, not in onresult, is what lets the whole sentence arrive:
+  // the pause timer or a second click ends the turn, then it is sent once.
+  recog.onend = () => {
+    clearTimeout(silenceTimer);
+    listening = false;
+    mic.classList.remove("on");
+    mic.title = "Ask by voice";
+    const said = (heard || $("q").value || "").trim();
+    heard = "";
+    if (said) ask(said, true);
+  };
+
   mic.addEventListener("click", () => {
-    if (listening) { recog.stop(); return; }
+    if (listening) { try { recog.stop(); } catch (e) {} return; }
     recog.lang = SPEECH[state.lang] || "en-IN";
-    try { recog.start(); } catch (e) { /* already listening */ }
+    try { recog.start(); } catch (e) { /* already starting */ }
   });
 }
 
