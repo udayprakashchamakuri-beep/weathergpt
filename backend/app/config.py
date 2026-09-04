@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     sachet_precise_match: bool = True
     # 5 minutes. The feed is refreshed by the issuing agencies, not on a fixed
     # cycle, so this is a politeness floor rather than a freshness target.
+    # SACHET's national feed is ~50 KB and is fetched by a background poll,
+    # not on a user's request path, so it gets its own budget instead of
+    # http_timeout (8s). Deployed on Render the 8s ceiling was being hit and
+    # fetch_raw() swallowed it, leaving the feed silently empty.
+    sachet_timeout_s: float = 25.0
     sachet_poll_seconds: int = 300
     enable_sachet_poll: bool = True
     # First poll seeds the seen-set WITHOUT dispatching. A live feed carries

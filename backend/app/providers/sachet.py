@@ -40,6 +40,11 @@ from ..schemas import AlertEvent, Provenance, Severity
 
 log = logging.getLogger(__name__)
 
+# Why the last fetch failed, surfaced through /api/health. An empty feed and
+# a blocked feed look identical from the outside otherwise, which is how a
+# deployment ends up quietly serving no warnings at all.
+LAST_ERROR: str | None = None
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # SACHET publishes the same green/yellow/orange/red ladder advisory.py already
@@ -290,7 +295,7 @@ async def alerts_for_point(lat: float, lon: float,
         headers = {"User-Agent": getattr(s, "sachet_user_agent", "WeatherGPT/1.0"),
                    "content-Type": "application/json"}
         try:
-            async with httpx.AsyncClient(timeout=s.http_timeout) as client:
+            async with httpx.AsyncClient(timeout=s.sachet_timeout_s) as client:
                 resp = await client.post(
                     url, headers=headers,
                     params={"lat": lat, "long": lon, "radius": str(r)})
@@ -370,17 +375,20 @@ async def fetch_raw() -> list[dict]:
     headers = {"User-Agent": getattr(s, "sachet_user_agent", "WeatherGPT/1.0"),
                "Accept": "application/json"}
     try:
-        async with httpx.AsyncClient(timeout=s.http_timeout) as client:
+        async with httpx.AsyncClient(timeout=s.sachet_timeout_s) as client:
             r = await client.get(url, headers=headers)
             r.raise_for_status()
             data = r.json()
     except Exception as exc:                       # noqa: BLE001 - see docstring
+        global LAST_ERROR
+        LAST_ERROR = f"{type(exc).__name__}: {exc}"[:200]
         log.warning("SACHET fetch failed: %r", exc)
         stale = upstream_cache.get(ck + ":stale")
         return stale if isinstance(stale, list) else []
     if not isinstance(data, list):
         log.warning("SACHET returned %s, expected a list", type(data).__name__)
         return []
+    LAST_ERROR = None
     upstream_cache.set(ck, data, ttl=max(60, s.sachet_poll_seconds))
     upstream_cache.set(ck + ":stale", data, ttl=21600)
     return data
@@ -415,4 +423,5 @@ async def status() -> dict:
         "cached_alerts": len(cached) if isinstance(cached, list) else 0,
         "poll_seconds": s.sachet_poll_seconds,
         "enabled": s.enable_sachet_poll,
+        "last_error": LAST_ERROR,
     }
