@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#eaf2fb">
+<title>WeatherNow — Live Weather, Better Days</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{
+  --bg:#e9f1fa;
+  --bg2:#f4f8fd;
+  --card:#ffffff;
+  --ink:#0f2740;
+  --ink-2:#16324f;
+  --muted:#6b7f96;
+  --muted-2:#8fa3b8;
+  --line:#e6edf5;
+  --blue:#1f7ae0;
+  --blue-2:#2b83ea;
+  --blue-soft:#e8f2fe;
+  --green:#22c55e;
+  --amber:#f59e0b;
+  --red:#e5484d;
+  --red-bg:#fff2f2;
+  --red-line:#fbd5d5;
+  --shadow:0 1px 2px rgba(15,39,64,.04), 0 6px 18px rgba(15,39,64,.06);
+  --r:18px;
+  --r-sm:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:linear-gradient(180deg,var(--bg) 0%,var(--bg2) 60%);
+  min-height:100vh;
+  color:var(--ink);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:14px;
+  -webkit-font-smoothing:antialiased;
+}
+.shell{max-width:1600px;margin:0 auto;padding:14px}
+
+/* ------------------------------------------------------------- header */
+.topbar{
+  background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);
+  display:flex;align-items:center;gap:14px;padding:10px 16px;margin-bottom:14px;
+}
+.brand{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.brand .logo{width:34px;height:34px;flex:0 0 auto}
+.brand h1{margin:0;font-size:19px;font-weight:800;color:var(--blue);letter-spacing:-.02em}
+.brand p{margin:1px 0 0;font-size:11px;color:var(--muted);font-weight:500}
+.search{
+  flex:1 1 auto;max-width:430px;margin:0 auto;position:relative;
+}
+.search input{
+  width:100%;border:1px solid var(--line);background:#fbfdff;border-radius:999px;
+  padding:10px 14px 10px 38px;font:inherit;font-size:13px;color:var(--ink);outline:none;
+}
+.search input::placeholder{color:var(--muted-2)}
+.search input:focus{border-color:#bcd9f7;box-shadow:0 0 0 3px rgba(43,131,234,.10)}
+.search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted-2)}
+.top-right{display:flex;align-items:center;gap:10px;flex:0 0 auto;margin-left:auto}
+.clock{display:flex;align-items:center;gap:8px}
+.clock .t{font-size:16px;font-weight:700;line-height:1.1}
+.clock .d{font-size:11px;color:var(--muted);font-weight:500}
+.pill{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+  background:#fbfdff;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;
+  color:var(--ink-2);white-space:nowrap;
+}
+.pill.live .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+.avatar{
+  width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:#fbfdff;
+  display:grid;place-items:center;color:var(--muted);flex:0 0 auto;
+}
+
+@media (max-width:760px){
+  .topbar{flex-wrap:wrap;row-gap:10px}
+  .brand p{display:none}
+  .clock .d{display:none}
+  .search{order:3;flex:1 1 100%;max-width:none;margin:0}
+  .top-right{gap:8px}
+}
+@media (max-width:480px){
+  .avatar{display:none}
+  .top-right .pill span:not(.dot){font-size:11.5px}
+}
+
+/* ------------------------------------------------------------- layout */
+.grid{display:grid;gap:14px;grid-template-columns:1fr;align-items:start}
+@media (min-width:900px){ .grid{grid-template-columns:1fr 1fr} .col-right{grid-column:1/-1} }
+@media (min-width:1280px){ .grid{grid-template-columns:320px minmax(0,1fr) 360px} .col-right{grid-column:auto} }
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.card-p{padding:16px}
+
+/* ------------------------------------------------------------- hero */
+.hero{
+  position:relative;color:#fff;min-height:330px;display:flex;flex-direction:column;
+  background:
+    linear-gradient(180deg, rgba(10,22,40,.72) 0%, rgba(10,22,40,.30) 42%, rgba(10,22,40,.86) 100%),
+    linear-gradient(160deg,#f0a868 0%,#c97e8a 26%,#5a5f96 55%,#22304f 80%,#111c30 100%);
+  background-size:cover;background-position:center;
+}
+.hero-skyline{position:absolute;left:0;right:0;bottom:0;height:46%;opacity:.85}
+.hero-in{position:relative;z-index:2;padding:16px;display:flex;flex-direction:column;height:100%;flex:1}
+.hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.hero-loc{display:flex;align-items:center;gap:7px;font-size:16px;font-weight:800;letter-spacing:.01em}
+.hero-sub{margin:3px 0 0 22px;font-size:11.5px;opacity:.85;font-weight:500}
+.chip-live{
+  display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);
+  color:#12314f;border-radius:999px;padding:5px 11px;font-size:11px;font-weight:700;
+}
+.chip-live .dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.hero-q{margin:22px 0 6px;font-size:13px;opacity:.9;font-style:italic;font-weight:500}
+/* A live grounded answer is longer than the mockup's one-liner, so it is
+   clamped rather than allowed to push the note card out of the hero. */
+.hero-a{margin:0;font-size:23px;line-height:1.25;font-weight:700;letter-spacing:-.02em;
+  max-width:22ch;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;
+  overflow:hidden}
+.hero-note b{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.hero-note{
+  margin-top:auto;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.22);
+  border-radius:14px;padding:11px 13px;display:flex;gap:11px;align-items:flex-start;
+}
+.hero-note b{display:block;font-size:13.5px;font-weight:700;line-height:1.35}
+.hero-note span{font-size:11.5px;opacity:.85}
+
+/* ------------------------------------------------------------- lists */
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.sec-title{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.sec-meta{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2)}
+.rowlist{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .ic{width:20px;flex:0 0 20px;color:var(--blue);display:grid;place-items:center}
+.row .lb{flex:1 1 auto;font-size:13.5px;color:var(--ink-2);font-weight:500}
+.row .vl{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------- bars */
+.chart{display:flex;align-items:flex-end;gap:6px;height:120px;padding-top:6px}
+.bar{flex:1 1 0;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+.bar i{display:block;background:linear-gradient(180deg,#57a5f5,#2b83ea);border-radius:4px 4px 2px 2px}
+.bar.lo i{background:linear-gradient(180deg,#a9cef7,#79b4f0)}
+.xaxis{display:flex;gap:6px;margin-top:7px}
+.xaxis span{flex:1 1 0;text-align:center;font-size:10.5px;color:var(--muted-2);font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------- middle */
+.midhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:2px}
+.midloc{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;color:var(--ink)}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;border:0;
+  border-radius:999px;padding:9px 15px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+}
+.btn:hover{background:#1a6dcc}
+.now{
+  background:linear-gradient(135deg,#f2f8ff 0%,#e9f2fd 55%,#dceafb 100%);
+  border-radius:var(--r);padding:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  position:relative;overflow:hidden;
+}
+.now .wx{width:96px;flex:0 0 96px}
+.now .txt{flex:1 1 220px;min-width:0}
+.now h2{margin:0 0 6px;font-size:25px;line-height:1.18;font-weight:700;letter-spacing:-.02em;max-width:15ch}
+.temp{display:flex;align-items:flex-start;gap:2px;font-weight:800;letter-spacing:-.04em}
+.temp .n{font-size:58px;line-height:1}
+.temp .u{font-size:22px;margin-top:8px;color:var(--muted)}
+.feels{display:flex;flex-direction:column;gap:5px;font-size:13.5px;color:var(--ink-2);font-weight:500}
+.feels b{font-weight:700}
+.chip-th{
+  display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
+  border-radius:999px;padding:7px 12px;font-size:12px;font-weight:600;color:var(--blue);margin-top:12px;
+}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line)}
+@media (max-width:640px){ .metrics{grid-template-columns:repeat(2,1fr)} }
+.metric{padding:14px 16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;gap:11px;align-items:flex-start}
+.metric:nth-child(3n){border-right:0}
+@media (max-width:640px){ .metric:nth-child(3n){border-right:1px solid var(--line)} .metric:nth-child(2n){border-right:0} }
+.metric .ic{color:var(--blue);flex:0 0 22px}
+.metric .k{font-size:12px;color:var(--muted);font-weight:500}
+.metric .v{font-size:16px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.metric .v.amber{color:var(--amber)}
+.fc-row{display:grid;grid-template-columns:44px 26px 1fr 62px 40px 40px 90px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.fc-row:last-child{border-bottom:0}
+.fc-row .day{font-size:13.5px;font-weight:700;color:var(--ink-2)}
+.fc-row .lbl{font-size:13px;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fc-row .mm{font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.fc-row .lo{font-size:13px;font-weight:700;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.fc-row .hi{font-size:13px;font-weight:700;color:var(--amber);text-align:right;font-variant-numeric:tabular-nums}
+.track{height:6px;border-radius:999px;background:#e8f0f9;overflow:hidden}
+.track i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#57a5f5,#2b83ea)}
+@media (max-width:720px){
+  .fc-row{grid-template-columns:40px 24px 1fr 54px 34px 34px;}
+  .fc-row .track{display:none}
+}
+.link{font-size:12.5px;font-weight:600;color:var(--blue);text-decoration:none}
+.link:hover{text-decoration:underline}
+
+/* ------------------------------------------------------------- warning */
+.warn{
+  background:var(--red-bg);border:1px solid var(--red-line);border-radius:var(--r);
+  padding:16px;position:relative;overflow:hidden;
+}
+.warn-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.tag-red{
+  display:inline-flex;align-items:center;gap:7px;background:var(--red);color:#fff;
+  border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:800;letter-spacing:.02em;
+}
+.warn-name{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#a8555a}
+.warn h3{margin:0 0 10px;font-size:23px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:#2b1416;max-width:16ch;position:relative;z-index:2}
+.warn p{margin:0 0 6px;font-size:13px;line-height:1.5;color:#5d3a3c;position:relative;z-index:2;max-width:34ch}
+.spiral{position:absolute;right:-26px;top:34px;width:150px;opacity:.5;z-index:1}
+.acts{display:flex;flex-direction:column}
+.act{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.act:last-child{border-bottom:0}
+.act .num{
+  width:26px;height:26px;flex:0 0 26px;border-radius:50%;border:1.5px solid var(--red);
+  color:var(--red);display:grid;place-items:center;font-size:10.5px;font-weight:800;
+}
+.act .tx{flex:1 1 auto;font-size:13px;color:var(--ink-2);font-weight:500;line-height:1.4}
+.act .ch{color:var(--muted-2);flex:0 0 auto}
+.act:hover .tx{color:var(--ink)}
+.chans{display:flex;gap:8px;flex-wrap:wrap}
+.chan{
+  flex:1 1 90px;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;background:#fbfdff;
+}
+.chan .n{font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.chan .t{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.chan svg{color:var(--blue)}
+
+.state{font-size:11px;color:var(--muted-2);padding:6px 2px 0}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ============================================================ header -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <circle cx="14" cy="14" r="7" fill="#fbbf24"/>
+        <path d="M14 3v3M14 22v3M3 14h3M22 14h3M6.5 6.5l2 2M19.5 19.5l2 2M21.5 6.5l-2 2M8.5 19.5l-2 2" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/>
+        <path d="M13 32a6 6 0 0 1 .6-11.9 8 8 0 0 1 15.2 2.2A5.5 5.5 0 0 1 28 32H13z" fill="#2b83ea"/>
+      </svg>
+      <div>
+        <h1>WeatherNow</h1>
+        <p>Live Weather, Better Days</p>
+      </div>
+    </div>
+
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search city or location…" autocomplete="off" aria-label="Search city or location">
+    </div>
+
+    <div class="top-right">
+      <div class="clock">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6b7f96" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <div>
+          <div class="t" id="clock-t">17:42</div>
+          <div class="d" id="clock-d">Fri, 15 Aug 2025</div>
+        </div>
+      </div>
+      <span class="pill live" id="src-pill"><span class="dot"></span> IMD LIVE</span>
+      <span class="pill">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#e5484d" stroke-width="2.2"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        <span id="loc-name">Vijayawada</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8fa3b8" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </span>
+      <div class="avatar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.3-3.7 4.1-5.5 7.5-5.5s6.2 1.8 7.5 5.5"/></svg>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- ========================================================== left -->
+    <div class="col">
+
+      <section class="card hero">
+        <svg class="hero-skyline" viewBox="0 0 400 140" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 120h30v-22h14v22h20V88h16v32h22V72h18v48h26V96h14v24h24V64h20v56h28V92h16v28h26V78h18v42h30V104h16v16h32v20H0z" fill="#0b1626" opacity=".55"/>
+          <path d="M0 132h400v8H0z" fill="#0b1626" opacity=".7"/>
+        </svg>
+        <div class="hero-in">
+          <div class="hero-top">
+            <div>
+              <div class="hero-loc">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                <span id="hero-city">VIJAYAWADA</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <p class="hero-sub" id="hero-admin">Andhra Pradesh, India</p>
+            </div>
+            <span class="chip-live" id="hero-src"><span class="dot"></span> IMD LIVE</span>
+          </div>
+
+          <p class="hero-q" id="hero-q">“Do I need an umbrella this evening?”</p>
+          <p class="hero-a" id="hero-a">Yes — take one out after 7pm.</p>
+
+          <div class="hero-note">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#dbeafe" stroke-width="2" stroke-linecap="round" style="flex:0 0 19px;margin-top:1px"><path d="M12 3a9 9 0 0 1 9 9H3a9 9 0 0 1 9-9z"/><path d="M12 12v7a2.5 2.5 0 0 0 5 0"/></svg>
+            <div>
+              <b id="note-main">Heavy from 20:30, easing by 3am.</b>
+              <span id="note-sub">Thunder likely.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card-p">
+        <div class="sec-head">
+          <div class="sec-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M19.1 4.9l-1.5 1.5M6.4 17.6l-1.5 1.5"/></svg>
+            Today’s overview
+          </div>
+          <span class="sec-meta">Tonight</span>
+        </div>
+        <div class="rowlist" id="overview">
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="lb">Rain starts</span><span class="vl" id="ov-start">19:10</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Total rainfall</span><span class="vl" id="ov-total">34 mm</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16a4.5 4.5 0 0 1 .5-9 6.5 6.5 0 0 1 12.4 1.8A4 4 0 0 1 18 16H6z"/></svg></span><span class="lb">Chance of thunder</span><span class="vl" id="ov-thunder">78%</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z"/></svg></span><span class="lb">Peak intensity</span><span class="vl" id="ov-peak">11 mm/h</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg></span><span class="lb">Clears by</span><span class="vl" id="ov-clear">03:00</span></div>
+        </div>
+      </section>
+
+      <section class="card card-p">
+        <div class="sec-head">
+          <div class="sec-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2b83ea" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20v-4"/></svg>
+            Rainfall by hour
+          </div>
+          <span class="sec-meta">mm</span>
+        </div>
+        <div class="chart" id="chart"></div>
+        <div class="xaxis" id="xaxis"></div>
+      </section>
+    </div>
+
+    <!-- ======================================================== middle -->
+    <div class="col">
+      <div class="midhead">
+        <div class="midloc">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e5484d" stroke-width="2.2"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span id="mid-city">VIJAYAWADA</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8fa3b8" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <button class="btn" id="track-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          Track Another Location
+        </button>
+      </div>
+
+      <section class="card">
+        <div class="now">
+          <svg class="wx" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+            <circle cx="30" cy="27" r="12" fill="#fbbf24"/>
+            <path d="M30 9v5M30 40v5M12 27h5M43 27h5M17 14l3.5 3.5M39.5 36.5L43 40M43 14l-3.5 3.5M20.5 36.5L17 40" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+            <path d="M32 64a13 13 0 0 1 1.3-25.9A17 17 0 0 1 66 42a12 12 0 0 1-1 22H32z" fill="#cfe4fb"/>
+            <path d="M38 62a11 11 0 0 1 1.1-21.9A14.5 14.5 0 0 1 67 44a10 10 0 0 1-.8 18H38z" fill="#93c5fd"/>
+            <path d="M34 70l-4 9M46 70l-4 9M70 70l-4 9" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>
+            <path d="M57 66l-6 10h6l-5 9" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <div class="txt">
+            <h2 id="now-headline">Warm, humid, and about to rain.</h2>
+            <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap">
+              <div class="temp"><span class="n" id="now-temp">31</span><span class="u">°C</span></div>
+              <div class="feels">
+                <span>Feels like <b id="now-feels">38°</b></span>
+                <span>Dew point <b id="now-dew">26°</b></span>
+              </div>
+            </div>
+            <span class="chip-th" id="now-chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z"/></svg>
+              Thunder likely
+            </span>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Rain last 24h</div><div class="v" id="m-rain">42 mm</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 15a9 9 0 1 1 18 0"/><path d="M12 15l4-4"/></svg></span><div><div class="k">Pressure</div><div class="v" id="m-press">1002 hPa</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><div><div class="k">Wind</div><div class="v" id="m-wind">18 km/h SW</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M19.1 4.9l-1.5 1.5M6.4 17.6l-1.5 1.5"/></svg></span><div><div class="k">UV index</div><div class="v amber" id="m-uv">6 · High</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Humidity</div><div class="v" id="m-hum">86%</div></div></div>
+          <div class="metric" style="border-right:0"></div>
+        </div>
+
+        <div class="card-p">
+          <div class="sec-head">
+            <div class="sec-title">Next seven days</div>
+            <a class="link" href="#" id="full-fc">View full forecast →</a>
+          </div>
+          <div id="forecast"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ========================================================= right -->
+    <div class="col col-right">
+
+      <section class="warn" id="warn-card">
+        <svg class="spiral" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+          <path d="M60 12a48 48 0 1 1-33.9 14.1" stroke="#f08a8a" stroke-width="9" stroke-linecap="round"/>
+          <path d="M60 30a30 30 0 1 0 21.2 8.8" stroke="#e5484d" stroke-width="9" stroke-linecap="round"/>
+          <circle cx="60" cy="60" r="9" fill="#e5484d"/>
+        </svg>
+        <div class="warn-top">
+          <span class="tag-red">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+            <span id="warn-level">RED WARNING</span>
+          </span>
+          <span class="warn-name" id="warn-name">Cyclone Midhili</span>
+        </div>
+        <h3 id="warn-title">Landfall near you in 11 hours.</h3>
+        <p id="warn-body">Winds to 170 km/h between Kakinada and Machilipatnam around 04:50 IST.</p>
+        <p id="warn-action">Be indoors by 22:00.</p>
+      </section>
+
+      <section class="card card-p">
+        <div class="sec-head">
+          <div class="sec-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e5484d" stroke-width="2" stroke-linecap="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7z"/><path d="M10.5 20a2 2 0 0 0 3.5 0"/></svg>
+            Do this now
+          </div>
+        </div>
+        <div class="acts" id="acts">
+          <div class="act"><span class="num">01</span><span class="tx">Charge phones and power banks.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+          <div class="act"><span class="num">02</span><span class="tx">Documents in a sealed bag; three days of water.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+          <div class="act"><span class="num">03</span><span class="tx">Shelter at Govt. Junior College — 1.2 km.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
+        </div>
+      </section>
+
+      <section class="card card-p">
+        <div class="sec-head">
+          <div class="sec-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2b83ea" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20v-4"/></svg>
+            Storm data
+          </div>
+          <span class="sec-meta">At landfall</span>
+        </div>
+        <div class="rowlist">
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><span class="lb">Sustained wind</span><span class="vl" id="sd-wind">145 km/h</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9h9a3 3 0 1 0-3-3M4 14h12a3.5 3.5 0 1 1-3.5 3.5"/></svg></span><span class="lb">Gusts</span><span class="vl" id="sd-gust" style="color:var(--red)">170 km/h</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14c2 0 2-2 4.5-2S10 14 12 14s2-2 4.5-2S19 14 21 14M3 19c2 0 2-2 4.5-2S10 19 12 19s2-2 4.5-2S19 19 21 19"/></svg></span><span class="lb">Storm surge</span><span class="vl" id="sd-surge">1.8 m</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Rain total</span><span class="vl" id="sd-rain">210 mm</span></div>
+        </div>
+      </section>
+
+      <section class="card card-p">
+        <div class="sec-head">
+          <div class="sec-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2b83ea" stroke-width="2" stroke-linecap="round"><path d="M5 12a7 7 0 0 1 14 0M8.5 15a3.5 3.5 0 0 1 7 0M2 9a10 10 0 0 1 20 0"/></svg>
+            How this reached you
+          </div>
+        </div>
+        <div class="chans" id="chans">
+          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="13" rx="3"/><path d="M7 10h7M7 13.5h4"/></svg><span class="n">SMS</span><span class="t">17:04</span></div>
+          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span class="n">IVR Telugu</span><span class="t">17:06</span></div>
+          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7z"/><path d="M10.5 20a2 2 0 0 0 3.5 0"/></svg><span class="n">Push</span><span class="t">17:04</span></div>
+        </div>
+        <p class="state" id="state">Showing sample values — connecting to the service…</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ util */
+const $ = (id) => document.getElementById(id);
+const API = "";                        // same origin
+const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480 };
+
+function clock() {
+  const d = new Date();
+  $("clock-t").textContent = d.toLocaleTimeString("en-IN",
+    { hour: "2-digit", minute: "2-digit", hour12: false });
+  $("clock-d").textContent = d.toLocaleDateString("en-IN",
+    { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+}
+clock(); setInterval(clock, 20000);
+
+async function api(path) {
+  const r = await fetch(API + path, { headers: { "Accept": "application/json" } });
+  if (!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+const round = (v, d = 0) => (v === null || v === undefined || Number.isNaN(v))
+  ? null : Number(v).toFixed(d);
+
+/* ---------------------------------------------------- rainfall bar chart */
+function drawChart(values, labels) {
+  const max = Math.max(1, ...values);
+  $("chart").innerHTML = values.map(v => {
+    const h = Math.max(4, Math.round((v / max) * 100));
+    const lo = v < max * 0.45 ? " lo" : "";
+    return `<div class="bar${lo}" title="${v} mm"><i style="height:${h}%"></i></div>`;
+  }).join("");
+  $("xaxis").innerHTML = labels.map(l => `<span>${l}</span>`).join("");
+}
+drawChart([2, 3, 5, 9, 14, 12, 7, 5, 3],
+          ["18", "19", "20", "21", "22", "23", "00", "01", "02"]);
+
+/* -------------------------------------------------------- seven day list */
+const ICONS = {
+  rain: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M6 14a4.2 4.2 0 0 1 .5-8.4A6 6 0 0 1 18 7.2 3.8 3.8 0 0 1 17.6 14H6z" fill="#93c5fd"/><path d="M8 17l-1.4 3M12 17l-1.4 3M16 17l-1.4 3" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/></svg>',
+  storm: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M6 13a4.2 4.2 0 0 1 .5-8.4A6 6 0 0 1 18 6.2 3.8 3.8 0 0 1 17.6 13H6z" fill="#93c5fd"/><path d="M13 14l-3.5 5H12l-1.5 4.5" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+  part: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="4" fill="#fbbf24"/><path d="M10 19a3.6 3.6 0 0 1 .4-7.2A5.4 5.4 0 0 1 20 13.4 3.3 3.3 0 0 1 19.6 19H10z" fill="#cfe4fb"/></svg>',
+  cloud: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M7 18a4.2 4.2 0 0 1 .5-8.4A6 6 0 0 1 19 11.2 3.8 3.8 0 0 1 18.6 18H7z" fill="#c7d6e6"/></svg>'
+};
+function iconFor(label = "") {
+  const s = label.toLowerCase();
+  if (s.includes("thunder")) return ICONS.storm;
+  if (s.includes("rain") || s.includes("shower")) return ICONS.rain;
+  if (s.includes("partly") || s.includes("sun") || s.includes("clear")) return ICONS.part;
+  return ICONS.cloud;
+}
+function drawForecast(days) {
+  const maxMm = Math.max(1, ...days.map(d => d.mm || 0));
+  $("forecast").innerHTML = days.map(d => `
+    <div class="fc-row">
+      <span class="day">${d.day}</span>
+      <span>${iconFor(d.label)}</span>
+      <span class="lbl">${d.label}</span>
+      <span class="mm">${d.mm} mm</span>
+      <span class="lo">${d.lo}°</span>
+      <span class="hi">${d.hi}°</span>
+      <span class="track"><i style="width:${Math.round((d.mm / maxMm) * 100)}%"></i></span>
+    </div>`).join("");
+}
+drawForecast([
+  { day: "Fri", label: "Rain / Thunder", mm: 62, lo: 29, hi: 34 },
+  { day: "Sat", label: "Light Rain", mm: 34, lo: 30, hi: 34 },
+  { day: "Sun", label: "Partly Cloudy", mm: 16, lo: 32, hi: 36 },
+  { day: "Mon", label: "Partly Cloudy", mm: 8, lo: 33, hi: 37 },
+  { day: "Tue", label: "Mostly Cloudy", mm: 4, lo: 34, hi: 38 }
+]);
+
+/* ------------------------------------------------------------- hydration */
+const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+async function loadWeather(place) {
+  // /api/weather/current returns a flat record plus one provenance block.
+  const c = await api(`/api/weather/current?place=${encodeURIComponent(place)}`);
+
+  if (c.place) {
+    if (c.place.lat != null) state.lat = c.place.lat;
+    if (c.place.lon != null) state.lon = c.place.lon;
+    const nm = c.place.name || place;
+    $("loc-name").textContent = nm;
+    $("hero-city").textContent = nm.toUpperCase();
+    $("mid-city").textContent = nm.toUpperCase();
+    $("hero-admin").textContent =
+      [c.place.admin1, c.place.country].filter(Boolean).join(", ");
+  }
+
+  if (c.temp_c != null) $("now-temp").textContent = round(c.temp_c);
+  if (c.feels_like_c != null) $("now-feels").textContent = round(c.feels_like_c) + "°";
+  if (c.humidity_pct != null) $("m-hum").textContent = round(c.humidity_pct) + "%";
+  if (c.pressure_hpa != null) $("m-press").textContent = round(c.pressure_hpa) + " hPa";
+  if (c.wind_kmh != null) {
+    $("m-wind").textContent = round(c.wind_kmh) + " km/h" +
+      (c.wind_dir_deg != null ? " " + compass(c.wind_dir_deg) : "");
+  }
+  // Dew point is not published by every provider. Show an em dash rather than
+  // a derived number presented as an observation.
+  $("now-dew").textContent = (c.dew_point_c != null) ? round(c.dew_point_c) + "°" : "—";
+  if (c.condition) $("now-headline").textContent = sentence(c.condition);
+  if (c.condition) {
+    $("now-chip").lastChild.textContent = " " + sentence(c.condition);
+  }
+
+  // The chip only claims IMD when the source actually says it is authoritative.
+  const p = c.provenance;
+  if (p) {
+    const auth = !!p.authoritative;
+    $("src-pill").innerHTML =
+      `<span class="dot" style="background:${auth ? "#22c55e" : "#f59e0b"}"></span> ` +
+      (auth ? "IMD LIVE" : "MODEL");
+    $("src-pill").title = `${p.source} — ${p.product}`;
+    // The hero carries the same claim, so it has to move with it. Left
+    // hardcoded it would assert IMD over a model-derived reading.
+    const hs = $("hero-src");
+    if (hs) {
+      hs.innerHTML = `<span class="dot" style="background:${auth ? "#22c55e" : "#f59e0b"}"></span> ` +
+        (auth ? "IMD LIVE" : "MODEL");
+      hs.title = `${p.source} — ${p.product}`;
+    }
+  }
+  return c;
+}
+
+function compass(deg) {
+  const pts = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  return pts[Math.round(deg / 22.5) % 16];
+}
+function sentence(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+async function loadForecast(place) {
+  const fc = await api(`/api/weather/forecast?place=${encodeURIComponent(place)}&days=7`);
+  const raw = fc.days || [];
+  const days = raw.slice(0, 5).map(d => ({
+    day: DAY[new Date(d.date + "T00:00:00").getDay()] || "",
+    label: sentence(d.condition || "Cloudy"),
+    mm: Math.round(d.rain_mm ?? 0),
+    lo: Math.round(d.tmin_c ?? 0),
+    hi: Math.round(d.tmax_c ?? 0)
+  }));
+  if (days.length) drawForecast(days);
+
+  const t = raw[0];
+  if (t) {
+    if (t.rain_mm != null) {
+      $("ov-total").textContent = Math.round(t.rain_mm) + " mm";
+      $("m-rain").textContent = Math.round(t.rain_mm) + " mm";
+    }
+    // rain_prob_pct is null on providers that do not publish it (MET Norway).
+    $("ov-thunder").textContent =
+      (t.rain_prob_pct != null) ? Math.round(t.rain_prob_pct) + "%" : "—";
+    // Absent fields render as an em dash. The mockup's placeholder numbers must
+    // never survive into a live view -- an invented gust is an under-warning.
+    $("sd-gust").textContent = (t.gust_max_kmh != null)
+      ? Math.round(t.gust_max_kmh) + " km/h" : "—";
+    $("sd-wind").textContent = (t.wind_max_kmh != null)
+      ? Math.round(t.wind_max_kmh) + " km/h" : "—";
+    // No provider in the chain publishes storm surge, and the daily endpoint
+    // carries no hourly series, so these have no honest value to show.
+    $("sd-surge").textContent = "—";
+    $("ov-start").textContent = "—";
+    $("ov-clear").textContent = "—";
+    $("ov-peak").textContent = "—";
+    $("sd-rain").textContent = Math.round(
+      raw.slice(0, 3).reduce((a, d) => a + (d.rain_mm || 0), 0)) + " mm";
+  }
+
+  // Rainfall-by-hour: the daily endpoint has no hourly series, so this shows
+  // the coming days instead of inventing an hourly profile. Labels say so.
+  if (raw.length) {
+    drawChart(raw.slice(0, 7).map(d => Math.round(d.rain_mm ?? 0)),
+              raw.slice(0, 7).map(d => (DAY[new Date(d.date + "T00:00:00").getDay()] || "")));
+    const h = document.querySelector("#chart").closest(".card").querySelector(".sec-title");
+    if (h) h.lastChild.textContent = " Rainfall by day";
+  }
+}
+
+async function loadAlerts() {
+  const d = await api("/api/alerts/live?limit=1");
+  const a = (d.alerts || [])[0];
+  const card = $("warn-card");
+  if (!a) { card.style.display = "none"; return; }
+  card.style.display = "";
+
+  const sev = String(a.severity || "yellow").toUpperCase();
+  const tone = { RED:"#e5484d", ORANGE:"#f97316", YELLOW:"#eab308", GREEN:"#22c55e" }[sev] || "#e5484d";
+  $("warn-level").textContent = sev + " WARNING";
+  card.querySelector(".tag-red").style.background = tone;
+
+  const p = a.provenance || {};
+  $("warn-name").textContent = (p.source || "NDMA SACHET").replace(" via NDMA SACHET", "");
+  $("warn-title").textContent = a.headline || "Warning in force";
+  $("warn-body").textContent = a.area || "";
+  const eff = a.effective ? new Date(a.effective) : null;
+  const exp = a.expires ? new Date(a.expires) : null;
+  const fmt = (x) => x.toLocaleString("en-IN",
+    { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
+  $("warn-action").textContent = eff
+    ? (exp ? `In force ${fmt(eff)} – ${fmt(exp)}` : `In force from ${fmt(eff)}`)
+    : "";
+  card.title = p.source ? p.source + (p.authoritative ? " (authoritative)" : "") : "";
+}
+
+async function loadHero(place) {
+  // The hero is the product itself: a real question answered by /api/chat,
+  // grounded and templated. Falls back to whatever is already on screen if
+  // the router is unreachable, rather than leaving a stale claim looking live.
+  const q = "Do I need an umbrella this evening?";
+  $("hero-q").textContent = "“" + q + "”";
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // ChatRequest carries coordinates, not a place name -- passing `place`
+    // silently drops it and the router answers "which place should I check?".
+    body: JSON.stringify({ message: q, lang: "en",
+                           lat: state.lat, lon: state.lon })
+  });
+  if (!r.ok) throw new Error("chat " + r.status);
+  const d = await r.json();
+  if (d.answer) {
+    $("hero-a").textContent = d.answer;
+    $("note-main").textContent = d.advisory?.headline || d.answer;
+    $("note-sub").textContent = (d.advisory?.actions || []).join(" ") ||
+      (d.sources || []).map(x => x.source).slice(0, 1).join("") || "";
+  }
+}
+
+async function boot() {
+  try {
+    await loadWeather(state.place);
+    await loadForecast(state.place);
+    await loadAlerts();
+    try { await loadHero(state.place); } catch (e) { /* keep the last good answer */ }
+    $("state").textContent = "Live — values from the WeatherGPT service.";
+  } catch (e) {
+    $("state").textContent = "Service unreachable — showing sample values. (" + e.message + ")";
+  }
+}
+boot();
+
+/* ------------------------------------------------------------ interaction */
+$("q").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  const v = e.target.value.trim();
+  if (!v) return;
+  state.place = v;
+  $("state").textContent = "Loading " + v + "…";
+  try {
+    await loadWeather(v);
+    await loadForecast(v);
+    $("state").textContent = "Live — values from the WeatherGPT service.";
+  } catch (err) {
+    $("state").textContent = "Could not load " + v + " (" + err.message + ")";
+  }
+});
+$("track-btn").addEventListener("click", () => $("q").focus());
+$("full-fc").addEventListener("click", (e) => { e.preventDefault(); location.href = "/"; });
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>

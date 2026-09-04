@@ -481,6 +481,20 @@ async def icon(name: str):
                         headers={"Cache-Control": "public, max-age=604800"})
 
 
+@app.get("/app", response_class=HTMLResponse, include_in_schema=False)
+async def dashboard():
+    """The WeatherNow dashboard UI.
+
+    Served alongside the chat UI at "/" rather than replacing it: the smoke
+    suite and the demo flow both drive the chat surface, and a dashboard that
+    took over the root would break them.
+    """
+    f = FRONTEND / "app.html"
+    if not f.exists():
+        raise HTTPException(404, "dashboard not built")
+    return FileResponse(f, media_type="text/html; charset=utf-8")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Serve the single-file UI with the demo token injected at page load.
