@@ -29,6 +29,23 @@ GAZETTEER: dict[str, tuple[float, float, str]] = {
     "khammam": (17.2473, 80.1514, "Telangana"),
     "adilabad": (19.6640, 78.5320, "Telangana"),
     "mahbubnagar": (16.7488, 77.9854, "Telangana"),
+    # Districts created in the 2016 Telangana reorganisation, plus a few AP
+    # ones. Not exhaustive -- the network geocoder covers the tail -- but
+    # these keep the common cases working when it is unreachable.
+    "nagarkurnool": (16.4826, 78.3245, "Telangana"),
+    "nagar kurnool": (16.4826, 78.3245, "Telangana"),
+    "wanaparthy": (16.3612, 78.0625, "Telangana"),
+    "siddipet": (18.1018, 78.8520, "Telangana"),
+    "jagtial": (18.7908, 78.9126, "Telangana"),
+    "sangareddy": (17.6249, 78.0870, "Telangana"),
+    "vikarabad": (17.3370, 77.9040, "Telangana"),
+    "bhadradri kothagudem": (17.5528, 80.6194, "Telangana"),
+    "kothagudem": (17.5528, 80.6194, "Telangana"),
+    "suryapet": (17.1353, 79.6236, "Telangana"),
+    "vizianagaram": (18.1067, 83.3956, "Andhra Pradesh"),
+    "srikakulam": (18.2949, 83.8938, "Andhra Pradesh"),
+    "machilipatnam": (16.1875, 81.1389, "Andhra Pradesh"),
+    "kakinada": (16.9891, 82.2475, "Andhra Pradesh"),
     "nalgonda": (17.0575, 79.2684, "Telangana"),
     "vijayawada": (16.5062, 80.6480, "Andhra Pradesh"),
     "visakhapatnam": (17.6868, 83.2185, "Andhra Pradesh"),
@@ -156,15 +173,61 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z ]", "", text.lower()).strip()
 
 
+# Words that, sitting directly beside a name, make it a *different* place.
+# "kurnool" and "nagar kurnool" are two districts 200 km apart; so are
+# "mumbai" and "navi mumbai", "delhi" and "north delhi". A gazetteer entry is
+# only accepted if neither neighbouring word is one of these.
+#
+# Listing qualifiers rather than listing permitted filler is deliberate. An
+# allow-list of filler has to anticipate every way a question can be phrased,
+# and it failed the moment it met real input: "kal Guntur me barish hogi kya"
+# left "kal", "barish", "hogi" and "kya" over and rejected a perfectly good
+# Guntur. The risk being guarded against is narrow and nameable, so name it.
+QUALIFIERS = {
+    "nagar", "navi", "new", "old", "greater", "upper", "lower",
+    "north", "south", "east", "west", "central",
+    "uttar", "dakshin", "purba", "paschim", "pashchim", "madhya",
+    "purbi", "pachhim", "bada", "chota", "outer", "inner",
+}
+
+
 def lookup_local(name: str) -> Place | None:
+    """Exact gazetteer hit only.
+
+    This used to fall back to a substring match -- `cand in key or key in
+    cand` -- which silently relocated people. "nagarkurnool" contains
+    "kurnool", so a Nagarkurnool (Telangana) query returned Kurnool (Andhra
+    Pradesh), about 200 km away, labelled as a clean gazetteer hit. The same
+    bug sent "navi mumbai" to Mumbai and "north delhi" to Delhi.
+
+    For a service that issues weather warnings, resolving a district to a
+    different district is not a near miss, and the wrongness was invisible:
+    the answer named a real place and carried a normal provenance record.
+    Anything that is not an exact match now goes to the network geocoder,
+    which knows the places this 125-entry list does not.
+    """
     key = _norm(name)
     if key in GAZETTEER:
         lat, lon, state = GAZETTEER[key]
         return Place(name=name.title(), admin1=state, lat=lat, lon=lon,
                      source="bundled-gazetteer")
-    # loose contains match, longest first so "new delhi" beats "delhi"
-    for cand in sorted(GAZETTEER, key=len, reverse=True):
-        if cand in key or key in cand:
+
+    # The router hands over loosely trimmed text -- "pune right now" -- so an
+    # exact-only lookup would miss almost everything. Match the longest run of
+    # whole words that is itself an entry, and only accept it if every word
+    # left over is filler. "pune right now" keeps Pune; "nagar kurnool" and
+    # "navi mumbai" are rejected, because "nagar" and "navi" are part of the
+    # name and dropping them changes which district is meant.
+    words = key.split()
+    for size in range(len(words), 0, -1):
+        for start in range(len(words) - size + 1):
+            cand = " ".join(words[start:start + size])
+            if cand not in GAZETTEER:
+                continue
+            before = words[start - 1] if start > 0 else None
+            after = words[start + size] if start + size < len(words) else None
+            if before in QUALIFIERS or after in QUALIFIERS:
+                continue
             lat, lon, state = GAZETTEER[cand]
             return Place(name=cand.title(), admin1=state, lat=lat, lon=lon,
                          source="bundled-gazetteer")

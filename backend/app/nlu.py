@@ -71,12 +71,28 @@ INTENT_LEXICON: dict[Intent, list[str]] = {
         "forecast", "tomorrow", "next", "week", "will it", "going to rain",
         "coming days", "weekend", "day after", "kal", "parso", "barish",
         "baarish", "varsha", "vaana", "mazhai", "brishti", "paus", "aage",
-        "predict", "outlook", "5 day", "7 day", "10 day",
+        "predict", "outlook", "5 day", "7 day", "10 day", "repu", "naale",
+        "udya", "parso",
+        # Native script. Without these a question typed in Telugu or Hindi
+        # matched no forecast term and fell through to current conditions --
+        # "రేపు వర్షం పడుతుందా" (will it rain tomorrow) returned today's
+        # temperature. Romanised input was already covered; script input was
+        # not, which is the half of our own users who type in their language.
+        "రేపు", "వర్షం", "వాన", "ఎల్లుండి", "సూచన", "పడుతుందా", "వారం",
+        "कल", "परसों", "बारिश", "होगी", "अगले", "सप्ताह", "पूर्वानुमान",
+        "நாளை", "மழை", "முன்னறிவிப்பு", "அடுத்த",
+        "আগামীকাল", "বৃষ্টি", "পরশু", "সপ্তাহ",
+        "उद्या", "पाऊस", "परवा", "पुढील",
     ],
     Intent.CURRENT: [
         "now", "right now", "current", "currently", "today", "outside",
         "temperature", "temp", "humidity", "wind", "hot", "cold", "raining",
         "abhi", "aaj", "ippudu", "ippo", "ekhon", "aata", "mausam", "weather",
+        "ఇప్పుడు", "ప్రస్తుతం", "ఈరోజు", "వాతావరణం",
+        "अभी", "आज", "मौसम",
+        "இப்போது", "இன்று", "வானிலை",
+        "এখন", "আজ", "আবহাওয়া",
+        "आता", "हवामान",
     ],
     Intent.SUBSCRIBE: [
         "subscribe", "notify me", "alert me", "remind me", "send me alerts",
@@ -105,6 +121,8 @@ PERSONA_LEXICON: dict[Persona, list[str]] = {
 DAY_WORDS = {
     "today": 0, "aaj": 0, "now": 0, "tonight": 0,
     "tomorrow": 1, "kal": 1, "repu": 1, "naale": 1, "udya": 1, "kaal": 1,
+    "రేపు": 1, "कल": 1, "நாளை": 1, "আগামীকাল": 1, "उद्या": 1,
+    "ఎల్లుండి": 2, "परसों": 2, "পরশু": 2, "परवा": 2,
     "day after tomorrow": 2, "parso": 2, "ellundi": 2,
 }
 

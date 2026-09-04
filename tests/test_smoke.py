@@ -570,5 +570,45 @@ check("the disc fallback still matches the near subscriber", _outside.id in _coa
 _al.unsubscribe(_outside.id)
 _al.unsubscribe(_inside.id)
 
+# ------------------------------------- 10. place resolution must not relocate
+# The gazetteer used to fall back to a substring match, so "nagarkurnool"
+# matched "kurnool" and a Telangana district resolved to an Andhra Pradesh one
+# about 200 km away -- returned as a clean gazetteer hit with normal
+# provenance, so nothing about the answer looked wrong. For a service that
+# issues warnings, resolving to the wrong district is not a near miss.
+print("")
+print("[10] place resolution")
+
+from app.providers import geocode as _geo                 # noqa: E402
+
+_nk = _geo.lookup_local("Nagarkurnool")
+check("Nagarkurnool resolves to Nagarkurnool, not Kurnool",
+      _nk is not None and _nk.admin1 == "Telangana" and 16.0 < _nk.lat < 17.0,
+      f"got {_nk.name if _nk else None} / {_nk.admin1 if _nk else None}")
+check("the spaced spelling resolves the same way",
+      (_geo.lookup_local("Nagar Kurnool") or _nk).admin1 == "Telangana")
+
+_k = _geo.lookup_local("Kurnool")
+check("Kurnool itself still resolves to Kurnool",
+      _k is not None and _k.admin1 == "Andhra Pradesh",
+      f"got {_k.admin1 if _k else None}")
+check("Nagarkurnool and Kurnool are not the same point",
+      _nk is not None and _k is not None
+      and abs(_nk.lat - _k.lat) > 0.4,
+      f"{_nk.lat if _nk else None} vs {_k.lat if _k else None}")
+
+# A name the gazetteer does not hold must go to the network geocoder rather
+# than being answered with whichever entry happens to be a substring of it.
+check("an unlisted place is not silently substituted",
+      _geo.lookup_local("Navi Mumbai") is None,
+      f"got {(_geo.lookup_local('Navi Mumbai') or {}) and _geo.lookup_local('Navi Mumbai').name}")
+check("a qualified name is not collapsed to its parent",
+      _geo.lookup_local("North Delhi") is None)
+check("an exact multi-word entry still resolves locally",
+      (_geo.lookup_local("New Delhi") or {}) and _geo.lookup_local("New Delhi").name == "New Delhi")
+check("normalisation still handles case and punctuation",
+      (_geo.lookup_local("  hYdErAbAd ") or {}) and
+      _geo.lookup_local("  hYdErAbAd ").admin1 == "Telangana")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
