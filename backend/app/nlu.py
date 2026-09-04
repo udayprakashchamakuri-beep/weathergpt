@@ -386,6 +386,17 @@ def numerals_preserved(original: str, rewritten: str) -> bool:
 async def parse(text: str, lang: str = "en",
                 persona: Persona = Persona.GENERAL) -> ParsedQuery:
     rules = parse_rules(text, lang, persona)
-    if rules.confidence >= 0.7:
+
+    # Confidence measures the intent match, not the whole parse. Adding
+    # native-script terms made the rules confident about Telugu and Hindi
+    # questions, which stopped them escalating -- while the place-name
+    # patterns they use are Latin-only, so "ఖమ్మంలో రేపు వర్షం పడుతుందా"
+    # came back as a confident forecast with no place at all, and the user
+    # was asked which district they meant. Escalate when the intent is clear
+    # but the place is missing from a question written in another script:
+    # the model reads those names, the regexes cannot.
+    needs_place = (rules.place_text is None
+                   and any(ord(ch) > 0x0900 for ch in text))
+    if rules.confidence >= 0.7 and not needs_place:
         return rules
     return await parse_llm(text, rules)
