@@ -144,9 +144,16 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
     # The verdict is derived from the same rain_mm the table prints, so the
     # two can never disagree.
     RAIN_WORDS = ("rain", "barish", "baarish", "varsha", "vaana", "mazhai",
-                  "brishti", "paus", "umbrella", "wet", "shower",
+                  "brishti", "paus", "umbrella", "wet", "shower", "soak",
+                  "drench", "downpour", "spray", "dry",
                   "వర్షం", "వాన", "बारिश", "पाऊस", "மழை", "বৃষ্টি")
-    asked_about_rain = any(w in q.raw.lower() for w in RAIN_WORDS)
+    # The word list is the floor, not the mechanism. When the LLM router has
+    # understood the question it says so in `variables`, and that catches the
+    # phrasings no list anticipates -- "will my cotton get soaked" reached
+    # here as a forecast with no verdict, because "soaked" was not a word
+    # anyone had thought to add.
+    asked_about_rain = ("rain" in (q.variables or [])
+                        or any(w in q.raw.lower() for w in RAIN_WORDS))
 
     verdict_en = verdict_loc = None
     if asked_about_rain and shown:

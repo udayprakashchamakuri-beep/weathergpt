@@ -301,7 +301,11 @@ state any weather value. Convert the user's message into JSON only:
  "day_offset": integer days ahead (0 = today),
  "horizon_days": integer 1-16,
  "years_back": integer for climate questions,
- "month": 1-12 or null}
+ "month": 1-12 or null,
+ "variables": subset of ["rain","temperature","wind","humidity","aqi"] --
+   which quantities the question is actually about. Include "rain" whenever
+   the user is asking whether it will rain, however they phrase it ("will my
+   cotton get soaked", "can I dry the grain", "do I need an umbrella").}
 
 Return JSON and nothing else."""
 
@@ -350,6 +354,12 @@ async def parse_llm(text: str, fallback: ParsedQuery) -> ParsedQuery:
             day_offset=int(payload.get("day_offset") or fallback.day_offset),
             years_back=int(payload.get("years_back") or fallback.years_back),
             month=payload.get("month") or fallback.month,
+            # What the question is about, so downstream answers can lead with
+            # a verdict instead of a table. Keyword lists cannot anticipate
+            # every phrasing; the router already understood the sentence, so
+            # ask it rather than guessing again from the raw text.
+            variables=[v for v in (payload.get("variables") or [])
+                       if isinstance(v, str)] or fallback.variables,
             raw=text,
             parser="llm",
             confidence=0.9,
