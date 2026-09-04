@@ -18,15 +18,18 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open <http://localhost:8000> for the chat UI, <http://localhost:8000/docs> for
-the OpenAPI reference.
+Open <http://localhost:8000/app> for the WeatherNow dashboard,
+<http://localhost:8000> for the chat UI, and <http://localhost:8000/docs> for
+the OpenAPI reference. Both front ends are installable and open with no
+network; neither ever renders a cached figure as if it were current.
 
 Nothing needs configuring. With no API keys at all, the service runs on open
 NWP output, the rule-based router and bundled language templates. Add keys in
 `backend/.env` (see `.env.example`) to upgrade each layer independently.
 
 ```bash
-# 38 checks: routing, grounding, thresholds, dissemination, cache latency.
+# 110 checks: routing, grounding, thresholds, dissemination, cache latency,
+# unit conversions, SACHET normalisation and CAP footprint matching.
 # The suite drives /api/chat faster than a human, so start the server with
 # RATE_LIMIT_CHAT_PER_MIN=0; export DEMO_TOKEN too if the server has one set.
 python3 tests/test_smoke.py
@@ -52,9 +55,10 @@ numeral multiset before and after and discards any rewrite that added, dropped
 or altered a figure. A hallucinated rainfall total is structurally impossible,
 not merely unlikely.
 
-The UI shows the provenance chips on every answer. Green chip = IMD
-(authoritative). Blue chip = model-derived. A user always knows which they are
-reading.
+The UI shows the provenance chips on every answer. Green chip =
+authoritative (IMD or a state authority). Amber chip = model-derived. A user
+always knows which they are reading, and the dashboard's header chip reads
+`MODEL` rather than `IMD LIVE` whenever a forecast provider is answering.
 
 ### 2. It answers the decision, not the variable
 
@@ -80,6 +84,31 @@ multi-channel fan-out engine. One incoming alert becomes a Telugu SMS to a
 farmer, a Tamil IVR call to a fisherman and an English push to a district EOC —
 the same event, rendered three ways by role and language.
 
+### 4. The authoritative half does not need the key
+
+IMD's API needs a registered key **and** a whitelisted source IP; without both,
+every endpoint answers `Your IP/Domain needs to be whitelisted`. That would
+normally mean no authoritative source at all until the paperwork clears.
+
+NDMA's **SACHET** portal is the way out. It is the public CAP channel those
+same warnings are *published* on — IMD offices, the Central Water Commission
+and the state SDMAs all disseminate through it — and it needs no key at all.
+`providers/sachet.py` polls it, and provenance names both ends of the chain:
+`IMD Shillong via NDMA SACHET`, `authoritative: true`.
+
+Matching is done against the alert's **real CAP polygon**, not a bounding
+circle. `FetchLocationWiseAlerts` returns `area_json`, so a subscriber is
+matched by point-in-polygon (interior rings included) rather than by a disc
+derived from the affected area — a 14-district Rajasthan advisory would
+otherwise become a 184 km circle covering districts it never named. The
+subscriber's own radius still applies on top, because containment says where
+the hazard is and the radius says how far away someone still cares.
+
+SACHET is HTTP-pull with no push channel, so ingest is a timer: one cached
+request per interval, diffed against a seen-set. The first poll seeds without
+dispatching — a live feed always carries alerts already in force, and fanning
+those out on boot would page every subscriber on every restart.
+
 ---
 
 ## Multilingual, done safely
@@ -102,7 +131,8 @@ free-text questions with no template, TTS for output — and is optional.
 
 | Layer | Source | Status in this build |
 |---|---|---|
-| Authoritative obs, nowcast, warnings, cyclone, marine | **IMD public API** (`api.imd.gov.in`, 20 endpoints mapped in `providers/imd.py`) | needs a free key + IP whitelisting — [register](https://api.imd.gov.in/public/register.php) |
+| Authoritative warnings, live | **NDMA SACHET** CAP portal (`providers/sachet.py`) — carries IMD, CWC and state SDMA warnings with real CAP polygons | **live, no key** |
+| Authoritative obs, nowcast, cyclone, marine | **IMD public API** (`api.imd.gov.in`, 20 endpoints mapped in `providers/imd.py`) | needs a free key + IP whitelisting — [register](https://api.imd.gov.in/public/register.php) |
 | NWP forecast | NCEP GFS 0.25° / ECMWF IFS / ICON | live |
 | Reanalysis / climate | ERA5 daily archive, 1940– | live |
 | Air quality | CAMS composition, banded to the CPCB National AQI scale | live |
@@ -122,7 +152,8 @@ is visible before a key is issued.
 | GET | `/api/parse` | router output only — proves the LLM emits an intent, not a value |
 | GET | `/api/weather/current`, `/api/weather/forecast` | typed data access |
 | GET | `/api/climate/trend` | OLS trend over the ERA5 archive |
-| POST | `/api/alerts/subscribe` · `/scan` · `/simulate` | dissemination engine |
+| POST | `/api/alerts/subscribe` · `/scan` · `/simulate` · `/poll` | dissemination engine |
+| GET | `/api/alerts/live` | authoritative alerts in force; pass `lat`/`lon`/`place` for a location |
 | GET | `/api/alerts/log` · `/subscriptions` | delivery audit |
 | WS | `/ws/alerts` | live push channel |
 | GET | `/api/health` | source status, cache hit rate, degradation flags |
@@ -153,11 +184,13 @@ backend/app/
   alerts.py      subscribe / geofence / render / fan-out
   cache.py       two-tier TTL cache
   schemas.py     typed contracts, incl. Provenance
-  providers/     imd.py · openmeteo.py · geocode.py
+  providers/     imd.py · sachet.py · nwp.py · openweather.py · metno.py
+                 openmeteo.py · geocode.py
 frontend/
   index.html     single-file chat UI, voice, canvas charts, no dependencies
+  app.html       WeatherNow dashboard at /app -- installable, works offline
 tests/
-  test_smoke.py  38 checks
+  test_smoke.py  110 checks
 ```
 
 ## Deploying to Render
@@ -267,8 +300,8 @@ instead of starving the instance.
 
 ## Follow-up work
 
-- **Move `SUBSCRIPTIONS` and `DELIVERY_LOG` out of process memory.** They are
-  module-level dicts in `alerts.py`, which is why the Dockerfile pins
+- **Move `SUBSCRIPTIONS`, `DELIVERY_LOG` and `SEEN_ALERT_IDS` out of process
+  memory.** They are module-level in `alerts.py`, which is why the Dockerfile pins
   `--workers 1` and why the deployment cannot scale horizontally or survive a
   restart. Redis or the Postgres/PostGIS service already in
   `docker-compose.yml` is the destination. Deliberately not done as part of
@@ -277,6 +310,13 @@ instead of starving the instance.
   short-lived token before wiring a real SMS/IVR channel.
 - Rate limiting is in-process, so it is per-container. It becomes per-user
   only alongside the shared store above.
+- **Try `FetchIMDNowcastAlerts`.** SACHET's own front end calls it and it needs
+  no key, so it may reach IMD nowcast data while the API registration is still
+  pending. Found while mapping the portal's endpoints; not yet tested.
+- **Use the real CAP polygon for the disc fallback too.** The global
+  `FetchAllAlertDetails` feed publishes no `area_json`, so an alert with no
+  subscriber nearby is still matched by the coarse disc. Correct today only
+  because a coarse hit is what triggers the precise confirmation.
 
 ## Honest limits
 
@@ -289,16 +329,19 @@ find, so it is better said first.
   needs IMD's district *object id*; `imd.resolve_district_id()` returns `None`
   until that master list is loaded, and the answer reports the gap in
   `degraded` rather than guessing an id and returning the wrong district.
-  Consequence for the demo: **the green "authoritative / IMD" provenance chip
-  cannot appear yet.** Everything you can show today is model-derived and
-  labelled as such.
+  Consequence for the demo: **IMD observations and nowcasts are still out of
+  reach**, so every *forecast* value you can show is model-derived and
+  labelled as such. Warnings are not affected — they arrive authoritative via
+  NDMA SACHET, which needs no key (see below).
 - **Heat rules are screening thresholds, not IMD's heat-wave criterion.** IMD
   defines a heat wave by departure from the station normal (≥4.5 °C, ≥6.4 °C
   severe), not by an absolute temperature. This build uses 40 °C / 45 °C
   absolute screens and says so in the reason text. The ERA5 archive the
   climate module already reads can supply the normals; until it does, do not
   claim the real criterion.
-- **WIS2.0 MQTT ingest is designed and interfaced, not subscribed.**
+- **WIS2.0 MQTT ingest is designed and interfaced, not subscribed.** NDMA
+  SACHET covers the same need over HTTP in the meantime, so this is a
+  standards-compliance gap rather than a functional one.
 - **`/api/alerts/simulate` broadcasts a synthetic red alert.** It is gated
   behind `ENABLE_DEMO_ENDPOINTS` (default true for the demo) and every event
   it produces is stamped `"simulated": true`. Set it false on anything
