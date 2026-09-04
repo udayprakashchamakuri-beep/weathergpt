@@ -295,7 +295,12 @@ state any weather value. Convert the user's message into JSON only:
 
 {"intent": one of ["current_weather","forecast","warnings","advisory",
  "climate_trend","air_quality","subscribe_alerts","compare_locations","unknown"],
- "place_text": string or null,
+ "place_text": the place name transliterated into English/Latin script, with
+   any grammatical suffix removed -- "ఖమ్మంలో" -> "Khammam", "విజయవాడలో" ->
+   "Vijayawada", "गुंटूर में" -> "Guntur". Never return it in the original
+   script: the gazetteer and the geocoder are both Latin-only, so a name in
+   Devanagari or Telugu resolves to nothing and the user gets asked which
+   district they meant. null if no place is mentioned,
  "persona": one of ["general","farmer","fisherman","aviation","urban","researcher"],
  "lang": ISO-639-1 code of the user's language,
  "day_offset": integer days ahead (0 = today),
