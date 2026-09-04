@@ -522,6 +522,25 @@ async def dashboard():
     return HTMLResponse(html.replace("</head>", injected, 1))
 
 
+@app.get("/chat", response_class=HTMLResponse, include_in_schema=False)
+async def chat_ui():
+    """Full-width conversational view.
+
+    The dashboard carries one question in a side card, which is the wrong
+    shape for a platform whose problem statement is conversational. This is
+    the same surface with room for a thread, and it shares the dashboard's
+    language detection and provenance chips.
+    """
+    f = FRONTEND / "chat.html"
+    if not f.exists():
+        raise HTTPException(404, "chat UI not built")
+    html = f.read_text(encoding="utf-8")
+    injected = ("<script>window.__DEMO_TOKEN__ = "
+                + json.dumps(settings.demo_token or "")
+                + ";</script></head>")
+    return HTMLResponse(html.replace("</head>", injected, 1))
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Serve the single-file UI with the demo token injected at page load.
