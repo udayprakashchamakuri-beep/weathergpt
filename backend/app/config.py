@@ -42,7 +42,11 @@ class Settings(BaseSettings):
     # NEVER used to produce numbers. See nlu.py for the grounding contract.
     llm_provider: str = "none"           # none | groq | openai | gemini | ollama
     llm_api_key: str | None = None
-    llm_model: str = "llama-3.3-70b-versatile"
+    # Groq decommissioned llama-3.3-70b-versatile; a request naming it 404s,
+    # and parse_llm() swallowed that, so the router silently stayed on rules
+    # while /api/health cheerfully reported the provider as configured.
+    # Check https://console.groq.com/docs/models before changing this.
+    llm_model: str = "openai/gpt-oss-20b"
     llm_base_url: str | None = None
 
     # --- Safety ---------------------------------------------------------

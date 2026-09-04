@@ -33,6 +33,8 @@ outbound internet.
 """
 from __future__ import annotations
 
+import logging
+
 import json
 import re
 
@@ -40,6 +42,14 @@ import httpx
 
 from .config import get_settings
 from .schemas import Intent, ParsedQuery, Persona
+
+log = logging.getLogger(__name__)
+
+# Why the last LLM routing attempt failed, surfaced through /api/health.
+# A decommissioned model and "the rules were confident" look identical from
+# outside otherwise -- which is how a dead model name sat unnoticed behind a
+# provider the health endpoint reported as configured.
+LLM_LAST_ERROR: str | None = None
 
 # --------------------------------------------------------------- lexicons
 # Romanised Hindi/Telugu/Tamil/Bengali/Marathi included on purpose: that is
@@ -285,6 +295,7 @@ Return JSON and nothing else."""
 
 
 async def parse_llm(text: str, fallback: ParsedQuery) -> ParsedQuery:
+    global LLM_LAST_ERROR
     s = get_settings()
     if s.llm_provider == "none" or not s.llm_api_key:
         return fallback
@@ -312,7 +323,9 @@ async def parse_llm(text: str, fallback: ParsedQuery) -> ParsedQuery:
             )
             r.raise_for_status()
             payload = json.loads(r.json()["choices"][0]["message"]["content"])
-    except Exception:
+    except Exception as exc:                       # noqa: BLE001
+        LLM_LAST_ERROR = f"{type(exc).__name__}: {exc}"[:200]
+        log.warning("LLM routing failed, falling back to rules: %r", exc)
         return fallback
 
     try:
@@ -329,7 +342,9 @@ async def parse_llm(text: str, fallback: ParsedQuery) -> ParsedQuery:
             parser="llm",
             confidence=0.9,
         )
-    except Exception:
+    except Exception as exc:                       # noqa: BLE001
+        LLM_LAST_ERROR = f"{type(exc).__name__}: {exc}"[:200]
+        log.warning("LLM routing failed, falling back to rules: %r", exc)
         return fallback
 
 

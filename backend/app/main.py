@@ -102,7 +102,12 @@ async def health():
             "alerts_feed": await sachet.status(),
             "language": ("bhashini" if settings.bhashini_api_key
                          else "bundled templates + on-device speech"),
-            "llm_router": settings.llm_provider,
+            "llm_router": {
+                "provider": settings.llm_provider,
+                "model": settings.llm_model,
+                # Non-null means routing fell back to rules and why.
+                "last_error": nlu.LLM_LAST_ERROR,
+            },
         },
         "cache": {"response": response_cache.stats()},
         "subscriptions": len(alerts.SUBSCRIPTIONS),
