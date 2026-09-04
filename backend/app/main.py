@@ -347,14 +347,34 @@ async def api_poll_sachet(replay: bool = False):
 
 
 @app.get("/api/alerts/live")
-async def api_live_alerts(limit: int = 25):
-    """Read-through view of the authoritative feed: what NDMA is carrying
-    right now, normalised to the internal contract. Ungated and read-only --
-    this publishes nothing and fans out nothing."""
-    events = await sachet.recent_events()
+async def api_live_alerts(limit: int = 25, place: str | None = None,
+                          lat: float | None = None, lon: float | None = None,
+                          radius_km: float = 100.0):
+    """Read-through view of the authoritative feed. Ungated and read-only --
+    this publishes nothing and fans out nothing.
+
+    With a location it returns only the alerts affecting that point, matched
+    by NDMA against the alert's real CAP polygon and carrying that polygon
+    back. Without one it returns the national feed.
+
+    The location form is what a user-facing client wants: showing a Vijayawada
+    reader a warning for a district 1,500 km away is worse than showing none,
+    because it teaches them the banner is noise.
+    """
+    if place and lat is None:
+        p = await geocode.resolve(place)
+        if p:
+            lat, lon = p.lat, p.lon
+    if lat is not None and lon is not None:
+        events = await sachet.alerts_for_point(lat, lon, radius_km)
+        scope = f"within {radius_km:g} km"
+    else:
+        events = await sachet.recent_events()
+        scope = "national"
     return {
         "count": len(events),
         "source": "NDMA SACHET (CAP)",
+        "scope": scope,
         "alerts": [e.model_dump(mode="json") for e in events[:limit]],
     }
 
@@ -492,7 +512,14 @@ async def dashboard():
     f = FRONTEND / "app.html"
     if not f.exists():
         raise HTTPException(404, "dashboard not built")
-    return FileResponse(f, media_type="text/html; charset=utf-8")
+    # Same token injection as "/" -- the dashboard opens /ws/alerts and reads
+    # /api/alerts/log, both of which are gated. Same caveat too: anyone who can
+    # load the page can read the token out of the source.
+    html = f.read_text(encoding="utf-8")
+    injected = ("<script>window.__DEMO_TOKEN__ = "
+                + json.dumps(settings.demo_token or "")
+                + ";</script></head>")
+    return HTMLResponse(html.replace("</head>", injected, 1))
 
 
 @app.get("/", response_class=HTMLResponse)

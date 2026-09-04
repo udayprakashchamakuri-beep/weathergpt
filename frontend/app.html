@@ -234,6 +234,27 @@ body{
 .chan .t{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink-2)}
 .chan svg{color:var(--blue)}
 
+.mic{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:30px;height:30px;border-radius:50%;border:0;background:transparent;
+  color:var(--muted-2);display:grid;place-items:center;cursor:pointer;
+}
+.mic:hover{color:var(--blue);background:var(--blue-soft)}
+.mic.on{color:#fff;background:var(--red);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}
+.top-right{position:relative}
+.menu{
+  position:absolute;right:0;top:46px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-sm);box-shadow:0 8px 28px rgba(15,39,64,.14);padding:6px;z-index:40;min-width:172px;
+}
+.menu button{
+  display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;
+  background:none;border:0;padding:9px 10px;border-radius:8px;font:inherit;font-size:13px;
+  color:var(--ink-2);cursor:pointer;text-align:left;
+}
+.menu button:hover{background:var(--blue-soft)}
+.menu button[aria-current="true"]{color:var(--blue);font-weight:700}
+.menu .tick{color:var(--blue)}
 .state{font-size:11px;color:var(--muted-2);padding:6px 2px 0}
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -259,14 +280,17 @@ body{
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <input id="q" type="search" placeholder="Search city or location…" autocomplete="off" aria-label="Search city or location">
+      <button id="mic" class="mic" type="button" aria-label="Ask by voice" title="Ask by voice">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
     </div>
 
     <div class="top-right">
       <div class="clock">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6b7f96" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         <div>
-          <div class="t" id="clock-t">17:42</div>
-          <div class="d" id="clock-d">Fri, 15 Aug 2025</div>
+          <div class="t" id="clock-t">--:--</div>
+          <div class="d" id="clock-d"></div>
         </div>
       </div>
       <span class="pill live" id="src-pill"><span class="dot"></span> IMD LIVE</span>
@@ -275,9 +299,10 @@ body{
         <span id="loc-name">Vijayawada</span>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8fa3b8" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
       </span>
-      <div class="avatar">
+      <div class="avatar" id="langbtn" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" title="Language">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.3-3.7 4.1-5.5 7.5-5.5s6.2 1.8 7.5 5.5"/></svg>
       </div>
+      <div class="menu" id="langmenu" role="menu" hidden></div>
     </div>
   </header>
 
@@ -305,13 +330,13 @@ body{
           </div>
 
           <p class="hero-q" id="hero-q">“Do I need an umbrella this evening?”</p>
-          <p class="hero-a" id="hero-a">Yes — take one out after 7pm.</p>
+          <p class="hero-a" id="hero-a">Loading…</p>
 
           <div class="hero-note">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#dbeafe" stroke-width="2" stroke-linecap="round" style="flex:0 0 19px;margin-top:1px"><path d="M12 3a9 9 0 0 1 9 9H3a9 9 0 0 1 9-9z"/><path d="M12 12v7a2.5 2.5 0 0 0 5 0"/></svg>
             <div>
-              <b id="note-main">Heavy from 20:30, easing by 3am.</b>
-              <span id="note-sub">Thunder likely.</span>
+              <b id="note-main"></b>
+              <span id="note-sub"></span>
             </div>
           </div>
         </div>
@@ -326,11 +351,11 @@ body{
           <span class="sec-meta">Tonight</span>
         </div>
         <div class="rowlist" id="overview">
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="lb">Rain starts</span><span class="vl" id="ov-start">19:10</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Total rainfall</span><span class="vl" id="ov-total">34 mm</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16a4.5 4.5 0 0 1 .5-9 6.5 6.5 0 0 1 12.4 1.8A4 4 0 0 1 18 16H6z"/></svg></span><span class="lb">Chance of thunder</span><span class="vl" id="ov-thunder">78%</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z"/></svg></span><span class="lb">Peak intensity</span><span class="vl" id="ov-peak">11 mm/h</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg></span><span class="lb">Clears by</span><span class="vl" id="ov-clear">03:00</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="lb">Rain starts</span><span class="vl" id="ov-start">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Total rainfall</span><span class="vl" id="ov-total">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16a4.5 4.5 0 0 1 .5-9 6.5 6.5 0 0 1 12.4 1.8A4 4 0 0 1 18 16H6z"/></svg></span><span class="lb">Chance of thunder</span><span class="vl" id="ov-thunder">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z"/></svg></span><span class="lb">Peak intensity</span><span class="vl" id="ov-peak">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg></span><span class="lb">Clears by</span><span class="vl" id="ov-clear">—</span></div>
         </div>
       </section>
 
@@ -372,12 +397,12 @@ body{
             <path d="M57 66l-6 10h6l-5 9" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
           </svg>
           <div class="txt">
-            <h2 id="now-headline">Warm, humid, and about to rain.</h2>
+            <h2 id="now-headline">Loading conditions…</h2>
             <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap">
-              <div class="temp"><span class="n" id="now-temp">31</span><span class="u">°C</span></div>
+              <div class="temp"><span class="n" id="now-temp">—</span><span class="u">°C</span></div>
               <div class="feels">
-                <span>Feels like <b id="now-feels">38°</b></span>
-                <span>Dew point <b id="now-dew">26°</b></span>
+                <span>Feels like <b id="now-feels">—</b></span>
+                <span>Dew point <b id="now-dew">—</b></span>
               </div>
             </div>
             <span class="chip-th" id="now-chip">
@@ -388,11 +413,11 @@ body{
         </div>
 
         <div class="metrics">
-          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Rain last 24h</div><div class="v" id="m-rain">42 mm</div></div></div>
-          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 15a9 9 0 1 1 18 0"/><path d="M12 15l4-4"/></svg></span><div><div class="k">Pressure</div><div class="v" id="m-press">1002 hPa</div></div></div>
-          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><div><div class="k">Wind</div><div class="v" id="m-wind">18 km/h SW</div></div></div>
-          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M19.1 4.9l-1.5 1.5M6.4 17.6l-1.5 1.5"/></svg></span><div><div class="k">UV index</div><div class="v amber" id="m-uv">6 · High</div></div></div>
-          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Humidity</div><div class="v" id="m-hum">86%</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Rain last 24h</div><div class="v" id="m-rain">—</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 15a9 9 0 1 1 18 0"/><path d="M12 15l4-4"/></svg></span><div><div class="k">Pressure</div><div class="v" id="m-press">—</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><div><div class="k">Wind</div><div class="v" id="m-wind">—</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M19.1 4.9l-1.5 1.5M6.4 17.6l-1.5 1.5"/></svg></span><div><div class="k">UV index</div><div class="v amber" id="m-uv">—</div></div></div>
+          <div class="metric"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><div><div class="k">Humidity</div><div class="v" id="m-hum">—</div></div></div>
           <div class="metric" style="border-right:0"></div>
         </div>
 
@@ -434,11 +459,9 @@ body{
             Do this now
           </div>
         </div>
-        <div class="acts" id="acts">
-          <div class="act"><span class="num">01</span><span class="tx">Charge phones and power banks.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
-          <div class="act"><span class="num">02</span><span class="tx">Documents in a sealed bag; three days of water.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
-          <div class="act"><span class="num">03</span><span class="tx">Shelter at Govt. Junior College — 1.2 km.</span><span class="ch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
-        </div>
+        <div class="acts" id="acts"></div>
+        <p class="state" id="acts-state">Waiting for an advisory…</p>
+      </div>
       </section>
 
       <section class="card card-p">
@@ -450,10 +473,10 @@ body{
           <span class="sec-meta">At landfall</span>
         </div>
         <div class="rowlist">
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><span class="lb">Sustained wind</span><span class="vl" id="sd-wind">145 km/h</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9h9a3 3 0 1 0-3-3M4 14h12a3.5 3.5 0 1 1-3.5 3.5"/></svg></span><span class="lb">Gusts</span><span class="vl" id="sd-gust" style="color:var(--red)">170 km/h</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14c2 0 2-2 4.5-2S10 14 12 14s2-2 4.5-2S19 14 21 14M3 19c2 0 2-2 4.5-2S10 19 12 19s2-2 4.5-2S19 19 21 19"/></svg></span><span class="lb">Storm surge</span><span class="vl" id="sd-surge">1.8 m</span></div>
-          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Rain total</span><span class="vl" id="sd-rain">210 mm</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h9"/></svg></span><span class="lb">Sustained wind</span><span class="vl" id="sd-wind">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9h9a3 3 0 1 0-3-3M4 14h12a3.5 3.5 0 1 1-3.5 3.5"/></svg></span><span class="lb">Gusts</span><span class="vl" id="sd-gust">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14c2 0 2-2 4.5-2S10 14 12 14s2-2 4.5-2S19 14 21 14M3 19c2 0 2-2 4.5-2S10 19 12 19s2-2 4.5-2S19 19 21 19"/></svg></span><span class="lb">Storm surge</span><span class="vl" id="sd-surge">—</span></div>
+          <div class="row"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg></span><span class="lb">Rain total</span><span class="vl" id="sd-rain">—</span></div>
         </div>
       </section>
 
@@ -464,11 +487,8 @@ body{
             How this reached you
           </div>
         </div>
-        <div class="chans" id="chans">
-          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="13" rx="3"/><path d="M7 10h7M7 13.5h4"/></svg><span class="n">SMS</span><span class="t">17:04</span></div>
-          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span class="n">IVR Telugu</span><span class="t">17:06</span></div>
-          <div class="chan"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7z"/><path d="M10.5 20a2 2 0 0 0 3.5 0"/></svg><span class="n">Push</span><span class="t">17:04</span></div>
-        </div>
+        <div class="chans" id="chans"></div>
+      </div>
         <p class="state" id="state">Showing sample values — connecting to the service…</p>
       </section>
     </div>
@@ -479,7 +499,9 @@ body{
 /* ------------------------------------------------------------------ util */
 const $ = (id) => document.getElementById(id);
 const API = "";                        // same origin
-const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480 };
+const TOKEN = window.__DEMO_TOKEN__ || "";
+const authHeaders = () => TOKEN ? { "X-Demo-Token": TOKEN } : {};
+const state = { place: "Vijayawada", lat: 16.5062, lon: 80.6480, lang: "en" };
 
 function clock() {
   const d = new Date();
@@ -491,7 +513,9 @@ function clock() {
 clock(); setInterval(clock, 20000);
 
 async function api(path) {
-  const r = await fetch(API + path, { headers: { "Accept": "application/json" } });
+  const r = await fetch(API + path, {
+    headers: Object.assign({ "Accept": "application/json" }, authHeaders())
+  });
   if (!r.ok) throw new Error(path + " -> " + r.status);
   return r.json();
 }
@@ -654,7 +678,11 @@ async function loadForecast(place) {
 }
 
 async function loadAlerts() {
-  const d = await api("/api/alerts/live?limit=1");
+  // Ask for alerts affecting *this* point, not the national feed. An
+  // unfiltered banner shows a reader in Vijayawada a warning for a
+  // district 1,500 km away, which teaches them to ignore the banner.
+  const d = await api("/api/alerts/live?limit=1&radius_km=120&lat=" +
+                      state.lat + "&lon=" + state.lon);
   const a = (d.alerts || [])[0];
   const card = $("warn-card");
   if (!a) { card.style.display = "none"; return; }
@@ -679,41 +707,263 @@ async function loadAlerts() {
   card.title = p.source ? p.source + (p.authoritative ? " (authoritative)" : "") : "";
 }
 
-async function loadHero(place) {
-  // The hero is the product itself: a real question answered by /api/chat,
-  // grounded and templated. Falls back to whatever is already on screen if
-  // the router is unreachable, rather than leaving a stale claim looking live.
-  const q = "Do I need an umbrella this evening?";
-  $("hero-q").textContent = "“" + q + "”";
+function esc(t) {
+  return String(t).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+
+/* ------------------------------------------------ do-this-now (real actions)
+   Sourced from advisory.actions -- the sector rules in advisory.py, which
+   report the variable and threshold that fired. This panel previously held
+   three invented lines, including a shelter 1.2 km away that does not exist. */
+function drawActs(advisory) {
+  const acts = (advisory && advisory.actions) || [];
+  const box = $("acts");
+  if (!acts.length) {
+    box.innerHTML = "";
+    $("acts-state").textContent = advisory
+      ? (advisory.headline || "No action required right now.")
+      : "Waiting for an advisory...";
+    $("acts-state").hidden = false;
+    return;
+  }
+  $("acts-state").hidden = true;
+  box.innerHTML = acts.slice(0, 4).map(function (a, i) {
+    return '<div class="act"><span class="num">' +
+      String(i + 1).padStart(2, "0") + '</span><span class="tx">' +
+      esc(a) + '</span></div>';
+  }).join("");
+}
+
+/* ------------------------------------------- how this reached you (real log)
+   /api/alerts/log holds the actual delivery records: channel, language, and
+   the time each was queued. The SMS/IVR/PUSH chips this replaces carried
+   invented timestamps. */
+const CHAN_ICON = {
+  sms:  '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="13" rx="3"/><path d="M7 10h7M7 13.5h4"/></svg>',
+  ivr:  '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
+  push: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7z"/><path d="M10.5 20a2 2 0 0 0 3.5 0"/></svg>',
+  whatsapp: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20l1.4-4A8 8 0 1 1 8 18.6L4 20z"/></svg>'
+};
+
+async function loadChannels() {
+  const box = $("chans");
+  try {
+    const d = await api("/api/alerts/log?limit=12");
+    const rows = d.entries || [];
+    if (!rows.length) {
+      box.innerHTML = '<p class="state" style="margin:0">No alerts delivered to ' +
+        'you yet. Subscribe to receive them.</p>';
+      return;
+    }
+    const seen = {};
+    const chips = [];
+    const recent = rows.slice().reverse();
+    for (let i = 0; i < recent.length && chips.length < 3; i++) {
+      const e = recent[i];
+      const ch = e.channel || "push";
+      const key = ch + "|" + (e.lang || "");
+      if (seen[key]) continue;
+      seen[key] = 1;
+      const t = e.sent_at
+        ? new Date(e.sent_at).toLocaleTimeString("en-IN",
+            { hour: "2-digit", minute: "2-digit", hour12: false })
+        : "--:--";
+      const name = ch.toUpperCase() +
+        (e.lang && e.lang !== "en" ? " " + e.lang.toUpperCase() : "");
+      chips.push('<div class="chan">' + (CHAN_ICON[ch] || CHAN_ICON.push) +
+        '<span class="n">' + esc(name) + '</span>' +
+        '<span class="t">' + t + '</span></div>');
+    }
+    box.innerHTML = chips.join("");
+  } catch (err) {
+    box.innerHTML = '<p class="state" style="margin:0">Delivery log unavailable.</p>';
+  }
+}
+
+/* ------------------------------------------------------ last-known reading
+   The shell is precached, so the app opens with no network. It repaints from
+   the last real reading and says when that was taken -- never from the
+   design's placeholder numbers, and never showing a stale figure as current. */
+const LKG = "wgpt.lastKnown";
+
+function saveLastKnown(payload) {
+  try {
+    localStorage.setItem(LKG, JSON.stringify(Object.assign({ at: Date.now() }, payload)));
+  } catch (e) { /* private mode or quota: not worth failing the page over */ }
+}
+
+function readLastKnown() {
+  try { return JSON.parse(localStorage.getItem(LKG) || "null"); }
+  catch (e) { return null; }
+}
+
+function stamp(at, live) {
+  const t = new Date(at).toLocaleTimeString("en-IN",
+    { hour: "2-digit", minute: "2-digit", hour12: false });
+  $("state").textContent = live
+    ? "Live — updated " + t
+    : "Offline — last updated " + t + ". Values are not current.";
+}
+
+/* ---------------------------------------------------------------- language */
+const LANGS = [["en", "English"], ["hi", "हिन्दी"],
+               ["te", "తెలుగు"],
+               ["ta", "தமிழ்"],
+               ["bn", "বাংলা"],
+               ["mr", "मराठी"]];
+const SPEECH = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", bn: "bn-IN", mr: "mr-IN" };
+
+function drawLangMenu() {
+  $("langmenu").innerHTML = LANGS.map(function (p) {
+    const c = p[0], n = p[1], cur = (c === state.lang);
+    return '<button role="menuitem" data-lang="' + c + '" aria-current="' + cur + '">' +
+      '<span>' + n + '</span>' + (cur ? '<span class="tick">✓</span>' : "") +
+      '</button>';
+  }).join("");
+}
+
+function toggleLangMenu(open) {
+  const m = $("langmenu");
+  const show = (open === undefined) ? m.hidden : open;
+  m.hidden = !show;
+  $("langbtn").setAttribute("aria-expanded", String(show));
+  if (show) drawLangMenu();
+}
+
+/* ------------------------------------------------------------------ voice */
+let recog = null, listening = false;
+
+function speak(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = SPEECH[state.lang] || "en-IN";
+    speechSynthesis.speak(u);
+  } catch (e) { /* no voice installed for this language on this device */ }
+}
+
+function initVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $("mic");
+  if (!mic) return;
+  if (!SR) {
+    mic.title = "Voice input is not supported by this browser";
+    mic.disabled = true;
+    return;
+  }
+  recog = new SR();
+  recog.continuous = false;
+  recog.interimResults = false;
+  recog.onstart = function () { listening = true; mic.classList.add("on"); };
+  recog.onend = function () { listening = false; mic.classList.remove("on"); };
+  recog.onerror = function () { listening = false; mic.classList.remove("on"); };
+  recog.onresult = function (ev) {
+    const said = ev.results[0][0].transcript;
+    $("q").value = said;
+    askHero(said, true).catch(function () {});
+  };
+  mic.addEventListener("click", function () {
+    if (listening) { recog.stop(); return; }
+    recog.lang = SPEECH[state.lang] || "en-IN";
+    try { recog.start(); } catch (e) { /* already running */ }
+  });
+}
+
+/* --------------------------------------------------------------- live push */
+function openSocket() {
+  const proto = (location.protocol === "https:") ? "wss://" : "ws://";
+  let url = proto + location.host + "/ws/alerts";
+  // Browsers cannot set headers on a WebSocket handshake, so the shared
+  // secret rides as a query parameter -- the same way the chat UI does it.
+  if (TOKEN) url += "?token=" + encodeURIComponent(TOKEN);
+  let sock;
+  try { sock = new WebSocket(url); } catch (e) { return; }
+  sock.onmessage = function (ev) {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type !== "alert") return;
+    // A dispatched alert lands here before any reload would have found it.
+    loadAlerts().catch(function () {});
+    loadChannels().catch(function () {});
+  };
+  sock.onclose = function (e) {
+    // 1008 is the server refusing the upgrade on a bad or missing token.
+    if (e.code !== 1008) setTimeout(openSocket, 15000);
+  };
+}
+
+async function askHero(question, viaVoice) {
+  // The hero is the product: a real question, routed and answered with
+  // grounded values. It also feeds the do-this-now panel, because the
+  // advisory that comes back is where the real actions live.
+  $("hero-q").textContent = "“" + question + "”";
   const r = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
     // ChatRequest carries coordinates, not a place name -- passing `place`
-    // silently drops it and the router answers "which place should I check?".
-    body: JSON.stringify({ message: q, lang: "en",
+    // is silently dropped and the router asks which place to check.
+    body: JSON.stringify({ message: question, lang: state.lang,
                            lat: state.lat, lon: state.lon })
   });
   if (!r.ok) throw new Error("chat " + r.status);
   const d = await r.json();
   if (d.answer) {
     $("hero-a").textContent = d.answer;
-    $("note-main").textContent = d.advisory?.headline || d.answer;
-    $("note-sub").textContent = (d.advisory?.actions || []).join(" ") ||
-      (d.sources || []).map(x => x.source).slice(0, 1).join("") || "";
+    $("note-main").textContent = (d.advisory && d.advisory.headline) || "";
+    $("note-sub").textContent =
+      (d.sources || []).map(function (x) { return x.source; }).slice(0, 1).join("");
+    if (viaVoice) speak(d.answer);
+  }
+  drawActs(d.advisory);
+  return d;
+}
+
+const DEFAULT_Q = {
+  en: "Do I need an umbrella this evening?",
+  hi: "क्या मुझे आज शाम छाता चाहिए?",
+  te: "ఈ సాయంత్రం గొడుగు కావాలా?",
+  ta: "இன்று மாலை குடை தேவையா?",
+  bn: "আজ সন্ধ্যায় কি ছাতা লাগবে?",
+  mr: "आज संध्याकाळी छत्री लागेल का?"
+};
+
+async function boot() {
+  initVoice();
+  drawLangMenu();
+
+  // Paint whatever we last saw before touching the network, so an offline
+  // launch shows a real reading with its own timestamp rather than nothing.
+  const last = readLastKnown();
+  if (last) {
+    if (last.place) state.place = last.place;
+    if (last.lat != null) { state.lat = last.lat; state.lon = last.lon; }
+    if (last.lang) state.lang = last.lang;
+    stamp(last.at, false);
+  }
+
+  try {
+    const cur = await loadWeather(state.place);
+    await loadForecast(state.place);
+    await loadAlerts();
+    await loadChannels();
+    try {
+      await askHero(DEFAULT_Q[state.lang] || DEFAULT_Q.en, false);
+    } catch (e) { /* keep the last good answer rather than blanking it */ }
+    saveLastKnown({ place: state.place, lat: state.lat, lon: state.lon,
+                    lang: state.lang, temp: cur && cur.temp_c });
+    stamp(Date.now(), true);
+    openSocket();
+  } catch (e) {
+    if (!last) {
+      $("state").textContent = "Service unreachable — no cached reading yet. (" +
+        e.message + ")";
+    }
   }
 }
 
-async function boot() {
-  try {
-    await loadWeather(state.place);
-    await loadForecast(state.place);
-    await loadAlerts();
-    try { await loadHero(state.place); } catch (e) { /* keep the last good answer */ }
-    $("state").textContent = "Live — values from the WeatherGPT service.";
-  } catch (e) {
-    $("state").textContent = "Service unreachable — showing sample values. (" + e.message + ")";
-  }
-}
 boot();
 
 /* ------------------------------------------------------------ interaction */
@@ -724,14 +974,35 @@ $("q").addEventListener("keydown", async (e) => {
   state.place = v;
   $("state").textContent = "Loading " + v + "…";
   try {
-    await loadWeather(v);
+    const cur = await loadWeather(v);
     await loadForecast(v);
-    $("state").textContent = "Live — values from the WeatherGPT service.";
+    await loadAlerts();
+    try { await askHero(DEFAULT_Q[state.lang] || DEFAULT_Q.en, false); } catch (err) {}
+    saveLastKnown({ place: state.place, lat: state.lat, lon: state.lon,
+                    lang: state.lang, temp: cur && cur.temp_c });
+    stamp(Date.now(), true);
   } catch (err) {
     $("state").textContent = "Could not load " + v + " (" + err.message + ")";
   }
 });
 $("track-btn").addEventListener("click", () => $("q").focus());
+
+$("langbtn").addEventListener("click", () => toggleLangMenu());
+$("langbtn").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleLangMenu(); }
+});
+$("langmenu").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-lang]");
+  if (!b) return;
+  state.lang = b.dataset.lang;
+  toggleLangMenu(false);
+  saveLastKnown({ place: state.place, lat: state.lat, lon: state.lon, lang: state.lang });
+  try { await askHero(DEFAULT_Q[state.lang] || DEFAULT_Q.en, false); }
+  catch (err) { /* language switch must not blank the page */ }
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#langmenu") && !e.target.closest("#langbtn")) toggleLangMenu(false);
+});
 $("full-fc").addEventListener("click", (e) => { e.preventDefault(); location.href = "/"; });
 
 if ("serviceWorker" in navigator) {

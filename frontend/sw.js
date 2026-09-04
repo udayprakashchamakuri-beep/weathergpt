@@ -24,6 +24,14 @@ const SHELL = `shell-${VERSION}`;
 // Cached on install. Kept minimal: everything here must be safe to serve
 // offline and must not contain a grounded weather value.
 const SHELL_ASSETS = [
+  // The two documents themselves. Safe to precache only because neither ships
+  // a grounded weather value in its markup: every figure renders as an em dash
+  // until it is fetched, and the dashboard repaints from its own last-known
+  // reading in localStorage with the time it was taken. A cached shell must
+  // never be able to show a stale number as if it were current -- during a
+  // cyclone the network is exactly what fails.
+  '/',
+  '/app',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
