@@ -17,7 +17,7 @@
 # ---------------------------------------------------------------------------
 #
 # SETUP: add repository variable SPACE_URL, e.g.
-#   https://weathergpt.onrender.com
+#   https://weathergpt-pay8.onrender.com
 # Settings -> Secrets and variables -> Actions -> Variables -> New variable.
 # No token is needed: /api/health is public and ungated.
 name: keepalive
