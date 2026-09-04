@@ -153,14 +153,26 @@ STOPWORD_PLACES = {
     "now", "next", "week", "days", "day", "alert", "warning", "please",
 }
 
+# Kept in step with the native-script terms in INTENT_TERMS. They drifted
+# once: script words were added for intent matching but not here, so
+# "ఈరోజు వర్షం పడుతుందా" was understood as a forecast question and answered
+# in English -- and, because the response cache is keyed on the parsed
+# meaning including language, it then collided with an earlier English
+# forecast and returned that answer verbatim. Add script words to both.
 LANG_HINTS = {
     "hi": ["kya", "hai", "kal", "aaj", "barish", "baarish", "mausam", "kaisa",
-           "hoga", "chetavani", "mujhe", "बारिश", "मौसम", "कल"],
+           "hoga", "chetavani", "mujhe", "बारिश", "मौसम", "कल", "आज", "अभी",
+           "परसों", "होगी", "सप्ताह", "पूर्वानुमान", "चेतावनी", "तापमान"],
     "te": ["repu", "ippudu", "vaana", "vaanam", "ela", "undi", "rythu",
-           "వాన", "వాతావరణం", "రేపు"],
-    "ta": ["mazhai", "innaiku", "naale", "eppadi", "மழை", "வானிலை", "நாளை"],
-    "bn": ["brishti", "aaj ke", "kemon", "ekhon", "বৃষ্টি", "আবহাওয়া", "আজ"],
-    "mr": ["paus", "udya", "kasa", "aahe", "पाऊस", "हवामान", "उद्या"],
+           "వాన", "వాతావరణం", "రేపు", "వర్షం", "ఈరోజు", "ఇప్పుడు",
+           "ప్రస్తుతం", "ఎల్లుండి", "పడుతుందా", "సూచన", "వారం",
+           "హెచ్చరిక", "ఉష్ణోగ్రత", "గాలి", "తేమ"],
+    "ta": ["mazhai", "innaiku", "naale", "eppadi", "மழை", "வானிலை", "நாளை",
+           "இன்று", "இப்போது", "அடுத்த", "முன்னறிவிப்பு", "எச்சரிக்கை"],
+    "bn": ["brishti", "aaj ke", "kemon", "ekhon", "বৃষ্টি", "আবহাওয়া", "আজ",
+           "এখন", "আগামীকাল", "পরশু", "সপ্তাহ", "সতর্কতা"],
+    "mr": ["paus", "udya", "kasa", "aahe", "पाऊस", "हवामान", "उद्या", "आज",
+           "आता", "परवा", "पुढील", "इशारा"],
 }
 
 

@@ -66,6 +66,34 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "bn": "{date}: {condition}, {tmin}–{tmax}°C, বৃষ্টি {rain} মিমি ({prob}% সম্ভাবনা), বাতাস {wind} কিমি/ঘণ্টা পর্যন্ত।",
         "mr": "{date}: {condition}, {tmin}–{tmax}°C, पाऊस {rain} मिमी ({prob}% शक्यता), वारा {wind} किमी/तास पर्यंत.",
     },
+    # A yes/no question deserves a yes/no first line. "Will it rain
+    # tomorrow" used to return the forecast table and leave the reader to
+    # work out the answer, which is the same failure as reporting a variable
+    # instead of a decision.
+    "rain_yes": {
+        "en": "Yes — {rain} mm expected {when} ({condition}).",
+        "hi": "हाँ — {when} {rain} मिमी बारिश की संभावना ({condition})।",
+        "te": "అవును — {when} {rain} మి.మీ వర్షం అంచనా ({condition}).",
+        "ta": "ஆம் — {when} {rain} மி.மீ மழை எதிர்பார்க்கப்படுகிறது ({condition}).",
+        "bn": "হ্যাঁ — {when} {rain} মিমি বৃষ্টির সম্ভাবনা ({condition})।",
+        "mr": "होय — {when} {rain} मिमी पाऊस अपेक्षित ({condition}).",
+    },
+    "rain_no": {
+        "en": "No rain expected {when} ({condition}).",
+        "hi": "{when} बारिश की संभावना नहीं ({condition})।",
+        "te": "{when} వర్షం అంచనా లేదు ({condition}).",
+        "ta": "{when} மழை எதிர்பார்க்கப்படவில்லை ({condition}).",
+        "bn": "{when} বৃষ্টির সম্ভাবনা নেই ({condition})।",
+        "mr": "{when} पावसाची शक्यता नाही ({condition}).",
+    },
+    "when_tomorrow": {
+        "en": "tomorrow", "hi": "कल", "te": "రేపు",
+        "ta": "நாளை", "bn": "আগামীকাল", "mr": "उद्या",
+    },
+    "when_today": {
+        "en": "today", "hi": "आज", "te": "ఈరోజు",
+        "ta": "இன்று", "bn": "আজ", "mr": "आज",
+    },
     "forecast_lead": {
         "en": "Forecast for {place}, next {n} days:",
         "hi": "{place} के लिए अगले {n} दिनों का पूर्वानुमान:",

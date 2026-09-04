@@ -138,8 +138,34 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
     else:
         shown = days[: min(days_n, 7)]
 
+    # A rain question gets a verdict first. Asking "will it rain tomorrow"
+    # and receiving a forecast table is the same failure as answering with a
+    # variable instead of a decision -- the reader still has to work it out.
+    # The verdict is derived from the same rain_mm the table prints, so the
+    # two can never disagree.
+    RAIN_WORDS = ("rain", "barish", "baarish", "varsha", "vaana", "mazhai",
+                  "brishti", "paus", "umbrella", "wet", "shower",
+                  "వర్షం", "వాన", "बारिश", "पाऊस", "மழை", "বৃষ্টি")
+    asked_about_rain = any(w in q.raw.lower() for w in RAIN_WORDS)
+
+    verdict_en = verdict_loc = None
+    if asked_about_rain and shown:
+        day = shown[0]
+        mm = day.get("rain_mm")
+        when_key = "when_tomorrow" if q.day_offset >= 1 else "when_today"
+        tid = "rain_yes" if (mm or 0) >= 0.2 else "rain_no"
+        verdict_en = i18n.t(tid, "en", rain=_fmt(mm, 1),
+                            when=i18n.t(when_key, "en"),
+                            condition=day["condition"])
+        verdict_loc = i18n.t(tid, q.lang, rain=_fmt(mm, 1),
+                             when=i18n.t(when_key, q.lang),
+                             condition=i18n.condition(day["condition"], q.lang))
+
     lead_en = i18n.t("forecast_lead", "en", place=place.name, n=len(shown))
     lead_loc = i18n.t("forecast_lead", q.lang, place=place.name, n=len(shown))
+    if verdict_en:
+        lead_en = verdict_en + " " + lead_en
+        lead_loc = verdict_loc + " " + lead_loc
 
     lines_en, lines_loc = [], []
     for d in shown:
