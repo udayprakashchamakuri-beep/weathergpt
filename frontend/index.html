@@ -178,6 +178,7 @@
       <h3>Forecast / trend</h3>
       <div class="body"><canvas id="chart" width="620" height="150"></canvas>
         <p class="hint" id="chartCap">Bars = rainfall (mm) · line = temperature (°C)</p>
+        <a href="#" class="hint" id="csv" hidden>Download this data (CSV)</a>
       </div>
     </section>
 
@@ -227,7 +228,7 @@ const DEMO_TOKEN = window.__DEMO_TOKEN__ || '';
 const demoHeaders = () => DEMO_TOKEN ? {'X-Demo-Token': DEMO_TOKEN} : {};
 const $ = s => document.querySelector(s);
 const chat = $('#chat');
-let coords = null, lastChart = null;
+let coords = null, lastChart = null, lastMeta = null;
 
 const SPEECH_LANG = {en:'en-IN',hi:'hi-IN',te:'te-IN',ta:'ta-IN',bn:'bn-IN',mr:'mr-IN'};
 
@@ -287,7 +288,7 @@ function render(d){
   el.appendChild(meta);
 
   if (d.followups?.length) chips(d.followups.concat(DEMOS.slice(0,3)));
-  if (d.chart) drawChart(d.chart);
+  if (d.chart) { lastMeta = {place: d.place, sources: d.sources}; drawChart(d.chart); }
   if (d.place) $('#placeName').textContent = '· '+d.place.name;
   if (d.facts?.length) fillObs(d.facts);
   speak(d.answer, d.lang);
@@ -310,6 +311,7 @@ function drawChart(c){
   const bars = c.rain || c.precip || [];
   const line = c.tmax || c.temp || [];
   if(!labels.length) return;
+  $('#csv').hidden = false;
 
   const bMax = Math.max(1, ...bars.map(v=>v||0));
   const lVals = line.filter(v=>v!=null);
@@ -360,6 +362,25 @@ function drawChart(c){
     : 'Bars = daily rainfall (mm) · line = daily max temperature (°C)';
 }
 addEventListener('resize', ()=> lastChart && drawChart(lastChart));
+
+// Researchers need the numbers, not a picture of them. Every column the chart
+// carries, with place, coordinates and source in a leading # comment line
+// (pandas: read_csv(..., comment='#')).
+$('#csv').onclick = e => {
+  e.preventDefault();
+  const c = lastChart; if (!c) return;
+  const cols = Object.keys(c).filter(k => Array.isArray(c[k]) && k !== 'labels');
+  const lines = [['label', ...cols].join(',')].concat(
+    c.labels.map((l, i) => [l, ...cols.map(k => c[k][i] ?? '')].join(',')));
+  const p = lastMeta?.place || {};
+  const src = (lastMeta?.sources || []).map(s => s.source + ' / ' + s.product).join('; ');
+  const head = `# ${p.name || ''} lat=${p.lat} lon=${p.lon} | ${c.type} | source: ${src}`
+             + ` | model-derived unless the source is IMD | exported ${new Date().toISOString()}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([head + '\n' + lines.join('\n')], {type: 'text/csv'}));
+  a.download = `weathergpt_${(p.name || 'data').replace(/\W+/g, '_')}_${c.type}.csv`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 
 /* --------------------------------------------------------------- speech */
 let recog=null, recording=false;
@@ -550,7 +571,7 @@ async function refreshSys(){
     const ttsWasOn = !!$('#ttsOn')?.checked;
     $('#sys').innerHTML =
       `<div class="stat"><span>IMD API</span><b>${esc(d.sources.imd_api)}</b></div>
-       <div class="stat"><span>NWP</span><b>${esc(nwp.provider)} (${esc(nwp.role)})</b></div>
+       <div class="stat"><span>NWP</span><b>${esc(nwp.provider)}${nwp.role !== 'unknown' ? ' (' + esc(nwp.role) + ')' : ''}</b></div>
        <div class="stat"><span>LLM router</span><b>${esc(llm.provider === 'none' ? 'rules only' : llm.provider + ' · ' + llm.model)}${llm.last_error ? ' — fell back to rules' : ''}</b></div>
        <div class="stat"><span>Language layer</span><b>${esc(d.sources.language)}</b></div>
        <div class="stat"><span>Cache hit rate</span><b>${(d.cache.response.hit_rate*100).toFixed(0)}%</b></div>

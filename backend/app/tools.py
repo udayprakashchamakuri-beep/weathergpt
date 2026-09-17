@@ -154,6 +154,7 @@ def _hourly_chart(fc: dict) -> dict | None:
     return {
         "type": "hourly",
         "labels": [t[11:16] for t in times[:n]],
+        "time": times[:n],
         "temp": (h.get("temperature_2m") or [])[:n],
         "precip": (h.get("precipitation") or [])[:n],
         "prob": (h.get("precipitation_probability") or [])[:n],
@@ -247,6 +248,7 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
         "chart": {
             "type": "daily",
             "labels": [d["date"][5:] for d in days[:7]],
+            "date": [d["date"] for d in days[:7]],
             "tmax": [d["tmax_c"] for d in days[:7]],
             "tmin": [d["tmin_c"] for d in days[:7]],
             "rain": [d["rain_mm"] for d in days[:7]],
@@ -343,6 +345,7 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
             "sources": [cur["provenance"], fc["provenance"]],
             "chart": {"type": "daily",
                       "labels": [d["date"][5:] for d in fc["days"][:7]],
+                      "date": [d["date"] for d in fc["days"][:7]],
                       "tmax": [d["tmax_c"] for d in fc["days"][:7]],
                       "tmin": [d["tmin_c"] for d in fc["days"][:7]],
                       "rain": [d["rain_mm"] for d in fc["days"][:7]]}}
