@@ -225,10 +225,10 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             b["winds"].append(v)
         if (v := inst.get("wind_speed_of_gust")) is not None:
             b["gusts"].append(v)
-        t, rh = inst.get("air_temperature"), inst.get("relative_humidity")
-        if t is not None and rh is not None:
-            b["wetbulb"].append(wet_bulb_c(t, rh))
-            b["thi"].append(thi(t, rh))
+        air, rh = inst.get("air_temperature"), inst.get("relative_humidity")
+        if air is not None and rh is not None:
+            b["wetbulb"].append(wet_bulb_c(air, rh))
+            b["thi"].append(thi(air, rh))
 
         one = entry["data"].get("next_1_hours")
         six = entry["data"].get("next_6_hours")

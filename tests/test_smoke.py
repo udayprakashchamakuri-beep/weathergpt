@@ -439,6 +439,34 @@ check("3-hourly rain sums across the day, absent treated as 0.0",
 check("daily max/min come from the 3-hourly slots",
       (mixed["days"][0]["tmax_c"], mixed["days"][0]["tmin_c"]) == (31.0, 26.0),
       f"got {mixed['days'][0]['tmax_c']}/{mixed['days'][0]['tmin_c']}")
+# MET Norway aggregation had no test at all, which is how a heat-stress change
+# that shadowed the loop's timestamp with a temperature reached main: the next
+# `t >= covered_until` raised on every MET Norway forecast.
+from app.providers import metno as _mn               # noqa: E402
+def _mn_entry(iso, temp, rh, rain_1h):
+    return {"time": iso, "data": {
+        "instant": {"details": {"air_temperature": temp, "relative_humidity": rh,
+                                "wind_speed": 3.0}},
+        "next_1_hours": {"summary": {"symbol_code": "rain"},
+                         "details": {"precipitation_amount": rain_1h}}}}
+async def _mn_daily(entries):
+    async def fake_get(lat, lon):
+        return {"properties": {"meta": {"updated_at": "2026-09-17T00:00:00Z"},
+                               "timeseries": entries}}
+    real, _mn._get = _mn._get, fake_get
+    try:
+        return await _mn.forecast(13.0, 80.2, days=3)
+    finally:
+        _mn._get = real
+_mn_out = asyncio.run(_mn_daily([_mn_entry("2026-09-18T01:00:00Z", 28.0, 80, 0.4),
+                                 _mn_entry("2026-09-18T02:00:00Z", 30.0, 70, 1.1)]))
+check("MET Norway aggregates rain across hourly entries",
+      _mn_out["days"][0]["rain_mm"] == 1.5, f"got {_mn_out['days'][0]['rain_mm']}")
+check("MET Norway wet-bulb max from coincident instant values",
+      _mn_out["days"][0]["wetbulb_max_c"]
+      == round(max(_adv.wet_bulb_c(28.0, 80), _adv.wet_bulb_c(30.0, 70)), 1),
+      f"got {_mn_out['days'][0]['wetbulb_max_c']}")
+
 check("daily wet-bulb max comes from coincident slot temperature and humidity",
       mixed["days"][0]["wetbulb_max_c"] == round(_adv.wet_bulb_c(31.0, 70), 1),
       f"got {mixed['days'][0]['wetbulb_max_c']}")
