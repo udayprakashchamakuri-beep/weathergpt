@@ -321,9 +321,10 @@ instead of starving the instance.
   short-lived token before wiring a real SMS/IVR channel.
 - Rate limiting is in-process, so it is per-container. It becomes per-user
   only alongside the shared store above.
-- **Try `FetchIMDNowcastAlerts`.** SACHET's own front end calls it and it needs
-  no key, so it may reach IMD nowcast data while the API registration is still
-  pending. Found while mapping the portal's endpoints; not yet tested.
+- **Push IMD nowcasts to subscribers.** `FetchIMDNowcastAlerts` works with no
+  key and the chat warnings answer now reads it (station nowcasts within 40 km,
+  2-3 h validity). The fan-out still only dispatches SACHET's CAP warnings, so
+  a lightning nowcast reaches someone who asks but not someone subscribed.
 - **Use the real CAP polygon for the disc fallback too.** The global
   `FetchAllAlertDetails` feed publishes no `area_json`, so an alert with no
   subscriber nearby is still matched by the coarse disc. Correct today only
