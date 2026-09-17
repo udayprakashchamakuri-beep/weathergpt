@@ -209,6 +209,7 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
     props = data["properties"]
 
     buckets: dict[str, dict] = {}
+    steps: list[dict] = []
     covered_until: datetime | None = None
 
     for entry in props["timeseries"]:
@@ -236,6 +237,10 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
         if window and (covered_until is None or t >= covered_until):
             det = window.get("details", {})
             b["rain"] += det.get("precipitation_amount") or 0.0
+            steps.append({"start": t.astimezone(IST).strftime("%Y-%m-%dT%H:%M"),
+                          "hours": hours,
+                          "rain_mm": det.get("precipitation_amount") or 0.0,
+                          "wind_kmh": _ms_to_kmh(inst.get("wind_speed"))})
             if (p := det.get("probability_of_precipitation")) is not None:
                 b["probs"].append(p)
             if sym := window.get("summary", {}).get("symbol_code"):
@@ -273,6 +278,7 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
     return {
         "days": out_days,
         "hourly": {},
+        "steps": steps,
         "provenance": _prov(f"{len(out_days)}-day deterministic forecast",
                             valid_time=props["meta"].get("updated_at")),
     }

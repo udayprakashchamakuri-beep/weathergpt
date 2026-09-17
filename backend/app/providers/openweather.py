@@ -190,6 +190,7 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
     """
     data = await _get(FORECAST_URL, lat, lon, ttl=1800)
     buckets: dict[str, dict] = {}
+    steps: list[dict] = []
 
     for slot in data.get("list", []):
         when = datetime.fromtimestamp(slot["dt"], tz=timezone.utc).astimezone(IST)
@@ -214,6 +215,10 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             b["gusts"].append(v)
         # Absent `rain` means zero, not missing.
         b["rain"] += _rain_mm(slot.get("rain"), "3h")
+        # `rain.3h` is the volume over the three hours ENDING at dt.
+        steps.append({"start": (when - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M"),
+                      "hours": 3, "rain_mm": _rain_mm(slot.get("rain"), "3h"),
+                      "wind_kmh": _to_kmh(wind.get("speed"))})
         if (p := slot.get("pop")) is not None:
             b["pops"].append(p)
         if code := (slot.get("weather") or [{}])[0].get("id"):
@@ -249,5 +254,6 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
     return {
         "days": out_days,
         "hourly": {},
+        "steps": steps,
         "provenance": _prov(f"{len(out_days)}-day forecast (3-hourly, aggregated)"),
     }

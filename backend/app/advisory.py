@@ -29,6 +29,7 @@ Every rule cites the variable and threshold that fired, so a user can ask
 from __future__ import annotations
 
 import math
+from datetime import datetime, timedelta
 
 from .schemas import Advisory, Persona, Severity
 
@@ -148,8 +149,63 @@ def classify(day: dict) -> tuple[Severity, list[str]]:
     return sev, why
 
 
+# Spraying. A product needs some dry hours after application to become
+# rainfast; 6 h covers most labels, and drizzle under 1 mm over that span is
+# tolerated. Wind above 15 km/h drifts the spray.
+# ponytail: one rainfastness figure for every product; use label times once
+# the crop and product are known.
+SPRAY_DRY_HOURS, SPRAY_RAIN_MM, SPRAY_MAX_WIND = 6, 1.0, 15.0
+SPRAY_FROM_HOUR, SPRAY_TO_HOUR = 6, 18          # IST daylight
+
+
+def _t(iso: str) -> datetime:
+    return datetime.fromisoformat(iso)
+
+
+def spray_window(steps: list[dict], not_before: str, days_ahead: int = 4) -> dict | None:
+    """First daylight forecast step, at or after `not_before`, with wind under
+    15 km/h and under 1 mm of rain from its start until 6 h after it ends.
+
+    Steps are {start "YYYY-MM-DDTHH:MM" IST, hours, rain_mm, wind_kmh}. A step
+    is only judged where the forecast covers the whole dry span: running out
+    of forecast is not the same as a dry afternoon.
+    """
+    steps = sorted(steps, key=lambda s: s["start"])
+    stop = (_t(not_before[:10]) + timedelta(days=days_ahead)).strftime("%Y-%m-%dT%H:%M")
+
+    def end_of(s):
+        return _t(s["start"]) + timedelta(hours=s["hours"])
+
+    def sprayable(s) -> bool:
+        start, end = _t(s["start"]), end_of(s)
+        if (start.hour < SPRAY_FROM_HOUR or end.date() != start.date()
+                or end.hour > SPRAY_TO_HOUR):
+            return False
+        if s["wind_kmh"] is None or s["wind_kmh"] >= SPRAY_MAX_WIND:
+            return False
+        until = end + timedelta(hours=SPRAY_DRY_HOURS)
+        span = [x for x in steps if _t(x["start"]) < until and end_of(x) > start]
+        return (max(end_of(x) for x in span) >= until
+                and sum(x["rain_mm"] for x in span) < SPRAY_RAIN_MM)
+
+    for i, s in enumerate(steps):
+        if not (not_before <= s["start"] < stop) or not sprayable(s):
+            continue
+        # Report the whole run of back-to-back sprayable steps, not just the
+        # first hour of it.
+        last = s
+        for nxt in steps[i + 1:]:
+            if _t(nxt["start"]) != end_of(last) or not sprayable(nxt):
+                break
+            last = nxt
+        return {"start": s["start"], "end": end_of(last).strftime("%Y-%m-%dT%H:%M"),
+                "wind_kmh": max(x["wind_kmh"] for x in steps[i:steps.index(last) + 1])}
+    return None
+
+
 # ------------------------------------------------------------------ farmer
-def farmer(days: list[dict], when: str = "today") -> Advisory:
+def farmer(days: list[dict], when: str = "today", steps: list[dict] | None = None,
+           not_before: str | None = None) -> Advisory:
     d0 = days[0] if days else {}
     next3 = days[:3]
     rain_today = d0.get("rain_mm") or 0.0
@@ -163,8 +219,24 @@ def farmer(days: list[dict], when: str = "today") -> Advisory:
 
     actions: list[str] = []
 
-    # spraying window
-    if rain_today >= RAIN_LIGHT:
+    # spraying window: by the hour when the provider's steps are available
+    if steps and d0.get("date"):
+        win = spray_window(steps, not_before or f"{d0['date']}T00:00")
+        if win:
+            span = (f"{win['start'][11:]}-{win['end'][11:]} (wind up to "
+                    f"{win['wind_kmh']:.0f} km/h, under 1 mm of rain for "
+                    f"{SPRAY_DRY_HOURS} h after)")
+        if win and win["start"][:10] == d0["date"]:
+            actions.append(f"Best spray window {when}: {span}.")
+        elif win:
+            actions.append(f"Do not spray {when} -- every daylight slot has rain "
+                           f"within {SPRAY_DRY_HOURS} h or wind above 15 km/h. "
+                           f"Next spray window: {win['start'][:10]} {span}.")
+        else:
+            actions.append("No safe spray window in the next 4 days -- every "
+                           f"daylight slot has rain within {SPRAY_DRY_HOURS} h "
+                           "or wind above 15 km/h.")
+    elif rain_today >= RAIN_LIGHT:
         actions.append(f"Do not spray pesticide or foliar fertiliser {when} -- "
                        f"{rain_today:.0f} mm of rain will wash it off within hours.")
         dry = next((d for d in days[1:5] if (d.get("rain_mm") or 0) < RAIN_LIGHT
@@ -463,10 +535,15 @@ def worker(days: list[dict], when: str = "today") -> Advisory:
 
 
 def build(persona: Persona, days: list[dict], current_wx: dict | None = None,
-          when: str = "today", trip_days: int = 1) -> Advisory:
-    """days[0] is the day the advice is for; `when` names it in the actions."""
+          when: str = "today", trip_days: int = 1, steps: list[dict] | None = None,
+          not_before: str | None = None) -> Advisory:
+    """days[0] is the day the advice is for; `when` names it in the actions.
+
+    `steps` are the provider's sub-daily forecast steps, and `not_before` the
+    earliest IST time an action can start ("YYYY-MM-DDTHH:MM").
+    """
     if persona == Persona.FARMER:
-        return farmer(days, when)
+        return farmer(days, when, steps, not_before)
     if persona == Persona.FISHERMAN:
         return fisherman(days, when, trip_days)
     if persona == Persona.WORKER:

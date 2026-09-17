@@ -14,7 +14,7 @@ The adapter interface below does not change when that swap happens.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -171,6 +171,10 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
         if t is not None and rh is not None:
             v = thi(t, rh)
             thi_by_day[ts[:10]] = max(v, thi_by_day.get(ts[:10], v))
+    steps = [{"start": (datetime.fromisoformat(ts) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+              "hours": 1, "rain_mm": rain or 0.0, "wind_kmh": wind}
+             for ts, rain, wind in zip(h.get("time", []), h.get("precipitation", []),
+                                       h.get("wind_speed_10m", []))]
     out_days = []
     for i, date in enumerate(d.get("time", [])):
         out_days.append({
@@ -192,6 +196,8 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
     return {
         "days": out_days,
         "hourly": data.get("hourly", {}),
+        # Precipitation is the sum over the hour BEFORE each timestamp.
+        "steps": steps,
         # Open-Meteo does not publish the underlying model run time, so
         # issued_at stays empty rather than being invented.
         "provenance": _prov(f"{days}-day deterministic forecast, 0.25 deg",

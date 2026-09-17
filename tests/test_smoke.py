@@ -229,6 +229,42 @@ check("farmer action names the day it is for",
       any("tomorrow" in a for a in build(Persona.FARMER, [day(rain_mm=20)],
                                          when="tomorrow").actions))
 
+# Spray windows by the hour. A daily total cannot tell a dry morning from a
+# wet afternoon, and the spray needs ~6 dry hours after application.
+from app.advisory import spray_window                # noqa: E402
+def _st(start, rain=0.0, wind=5.0, hours=3):
+    return {"start": start, "hours": hours, "rain_mm": rain, "wind_kmh": wind}
+_steps = [_st("2026-09-18T05:30"),                   # before daylight
+          _st("2026-09-18T08:30", wind=20),          # drift
+          _st("2026-09-18T11:30"),                   # rain lands 14:30-17:30
+          _st("2026-09-18T14:30", rain=3.0),
+          _st("2026-09-18T17:30"), _st("2026-09-18T20:30"), _st("2026-09-18T23:30"),
+          _st("2026-09-19T02:30"), _st("2026-09-19T05:30"),
+          _st("2026-09-19T08:30", wind=6), _st("2026-09-19T11:30"),
+          _st("2026-09-19T14:30", rain=0.3), _st("2026-09-19T17:30")]
+_win = spray_window(_steps, "2026-09-18T00:00")
+check("spray window skips drift, and a dry slot with rain within 6 h after",
+      _win and _win["start"] == "2026-09-19T08:30", f"got {_win}")
+_hourly = [_st(f"2026-09-20T{h:02d}:00", hours=1) for h in range(24)] +           [_st(f"2026-09-21T{h:02d}:00", hours=1) for h in range(6)]
+_hw = spray_window(_hourly, "2026-09-20T00:00")
+check("hourly steps report the whole daylight run, not its first hour",
+      _hw and (_hw["start"], _hw["end"]) == ("2026-09-20T06:00", "2026-09-20T18:00"),
+      f"got {_hw}")
+check("no window where the forecast ends before the dry span does",
+      spray_window(_steps[:-3], "2026-09-19T00:00") is None)
+check("window search starts no earlier than not_before",
+      spray_window(_steps, "2026-09-19T12:00") is None)
+_d19 = [day(date="2026-09-19")]
+check("farmer: best spray window named with its hours",
+      any("Best spray window tomorrow: 08:30-14:30" in a
+          for a in build(Persona.FARMER, _d19, when="tomorrow", steps=_steps,
+                         not_before="2026-09-19T00:00").actions))
+_d18 = [day(date="2026-09-18")]
+check("farmer: no window today -> do not spray, next window given",
+      any("Do not spray today" in a and "2026-09-19 08:30-14:30" in a
+          for a in build(Persona.FARMER, _d18, steps=_steps,
+                         not_before="2026-09-18T00:00").actions))
+
 # Heat stress for people and cattle. Wet-bulb is checked against Open-Meteo's
 # own hourly wet_bulb_temperature_2m for the same inputs (Nagpur, 17 Sep 2026).
 from app.advisory import thi, wet_bulb_c            # noqa: E402
@@ -467,6 +503,12 @@ check("MET Norway wet-bulb max from coincident instant values",
       == round(max(_adv.wet_bulb_c(28.0, 80), _adv.wet_bulb_c(30.0, 70)), 1),
       f"got {_mn_out['days'][0]['wetbulb_max_c']}")
 
+check("OpenWeather step starts 3 h before dt, in IST (rain.3h ends at dt)",
+      mixed["steps"][1]["start"] == "2026-09-02T05:30"
+      and mixed["steps"][1]["rain_mm"] == 1.2, f"got {mixed['steps'][1]}")
+check("MET Norway step starts at the entry time, in IST",
+      _mn_out["steps"][0]["start"] == "2026-09-18T06:30"
+      and _mn_out["steps"][0]["hours"] == 1, f"got {_mn_out['steps'][0]}")
 check("daily wet-bulb max comes from coincident slot temperature and humidity",
       mixed["days"][0]["wetbulb_max_c"] == round(_adv.wet_bulb_c(31.0, 70), 1),
       f"got {mixed['days'][0]['wetbulb_max_c']}")
