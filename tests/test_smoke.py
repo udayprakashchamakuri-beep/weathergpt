@@ -624,6 +624,69 @@ check("a subscriber 2,000 km away does not", _sub_far.id not in _matched)
 _al.unsubscribe(_sub_near.id)
 _al.unsubscribe(_sub_far.id)
 
+# --- IMD nowcasts, and the chat warnings answer reading SACHET ---------------
+# "Any warning for Puri?" used to answer from NWP screening alone and say the
+# IMD key was missing, while the same service fanned out SACHET's official
+# warnings to subscribers. Row captured from FetchIMDNowcastAlerts, 17 Sep 2026.
+from app.cache import upstream_cache as _uc              # noqa: E402
+from app.config import get_settings as _gs               # noqa: E402
+from app.schemas import ParsedQuery as _PQ, Place as _Place, Intent as _Int  # noqa: E402
+_nc_row = {"severity": "Watch", "severity_color": "yellow", "source": "IMD",
+           "effective_start_time": "Thu Sep 17 21:30:00 IST 2026",
+           "effective_end_time": "Thu Sep 17 23:30:00 IST 2026",
+           "area_description": "Wardha    ", "event_category": "Rain",
+           "events": "Moderate Rain, Light Rain",
+           "location": {"coordinates": [78.600000, 20.740000], "type": "Point"}}
+_nc = _sx.to_nowcast(_nc_row)
+check("nowcast location read as [lon, lat]",
+      _nc and (_nc["lat"], _nc["lon"]) == (20.74, 78.6), f"got {_nc}")
+check("nowcast is authoritative IMD via SACHET, area trimmed",
+      _nc["provenance"].authoritative and _nc["area"] == "Wardha"
+      and "IMD" in _nc["provenance"].source)
+
+_uc.set(_uc.key(_gs().sachet_nowcast_url), [_nc_row], ttl=600)
+_during = _dtt(2026, 9, 17, 17, 0, tzinfo=_utc.utc)      # 22:30 IST
+_after = _dtt(2026, 9, 17, 18, 30, tzinfo=_utc.utc)      # 00:00 IST
+check("nowcast within 40 km of Wardha town is returned, with its distance",
+      len(asyncio.run(_sx.nowcasts_near(20.75, 78.62, now=_during))) == 1)
+check("nowcast 150 km away is not",
+      asyncio.run(_sx.nowcasts_near(21.15, 79.09 + 1.0, now=_during)) == [])
+check("expired nowcast is not",
+      asyncio.run(_sx.nowcasts_near(20.75, 78.62, now=_after)) == [])
+
+
+async def _warn(official, ncs, point_error=None, lang="en"):
+    async def fake_point(lat, lon, r):
+        _sx.POINT_LAST_ERROR = point_error
+        return official
+    async def fake_nc(lat, lon):
+        return ncs
+    async def fake_fc(lat, lon, days=5):
+        return {"days": [day(date="2026-09-18")], "provenance":
+                Provenance(source="test model", product="test")}
+    saved = (_sx.alerts_for_point, _sx.nowcasts_near, _tools.nwp.forecast)
+    _sx.alerts_for_point, _sx.nowcasts_near, _tools.nwp.forecast = fake_point, fake_nc, fake_fc
+    try:
+        return await _tools.answer_warnings(
+            _PQ(intent=_Int.WARNING, lang=lang),
+            _Place(name="Wardha", lat=20.75, lon=78.62))
+    finally:
+        _sx.alerts_for_point, _sx.nowcasts_near, _tools.nwp.forecast = saved
+        _sx.POINT_LAST_ERROR = None
+
+_nc_live = dict(_nc, distance_km=2.3)
+_w = asyncio.run(_warn([], [_nc_live]))
+check("chat warnings lead with the official IMD nowcast",
+      _w["en"].startswith("Official warnings") and "IMD nowcast for Wardha" in _w["en"]
+      and "21:30–23:30" in _w["en"], _w["en"])
+check("chat warnings carry the nowcast's authoritative provenance",
+      any(s.authoritative for s in _w["sources"]))
+check("nowcast line rendered in the asker's language",
+      "నౌకాస్ట్" in asyncio.run(_warn([], [_nc_live], lang="te"))["loc"])
+_w_down = asyncio.run(_warn([], [], point_error="ConnectTimeout"))
+check("SACHET unreachable is declared, not answered as an all-clear",
+      any("not an all-clear" in x for x in _w_down["degraded"]), f"{_w_down['degraded']}")
+
 # ------------------------------------- 9. exact CAP footprint matching
 # The disc derived from `area_covered` over-matches: a 14-district Rajasthan
 # advisory becomes a ~184 km circle covering districts the advisory never

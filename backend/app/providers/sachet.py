@@ -276,6 +276,69 @@ def distance_to_geometry_km(lat: float, lon: float, geom: dict | None) -> float 
     return best
 
 
+# Why the last point query failed, or None. alerts_for_point() returns [] on
+# failure so the fan-out keeps working; an answer that says "no warning" must
+# check this first, because an unreachable feed is not an all-clear.
+POINT_LAST_ERROR: str | None = None
+
+
+def to_nowcast(row: dict) -> dict | None:
+    """Normalise one FetchIMDNowcastAlerts row, or None if unplaceable.
+
+    Coordinates are [lon, lat], GeoJSON order, like the CAP centroid.
+    """
+    try:
+        lon, lat = (float(v) for v in row["location"]["coordinates"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    start = parse_ts(row.get("effective_start_time"))
+    end = parse_ts(row.get("effective_end_time"))
+    if end is None:
+        return None
+    colour = str(row.get("severity_color") or "").lower()
+    return {
+        "area": str(row.get("area_description") or "").strip(),
+        "lat": lat, "lon": lon, "start": start, "end": end,
+        "events": str(row.get("events") or row.get("event_category") or "").strip(),
+        "severity": COLOUR_SEVERITY.get(colour, Severity.YELLOW),
+        "provenance": Provenance(
+            source=f"{row.get('source') or 'IMD'} nowcast via NDMA SACHET",
+            product="nowcast (next 2-3 h)", issued_at=start, valid_until=end,
+            url="https://sachet.ndma.gov.in/", authoritative=True),
+    }
+
+
+async def nowcasts_near(lat: float, lon: float, radius_km: float | None = None,
+                        now: datetime | None = None) -> list[dict]:
+    """IMD nowcasts in force within `radius_km`, nearest first, each with its
+    `distance_km`. One cached GET per poll interval; [] on failure."""
+    s = get_settings()
+    radius_km = radius_km or s.nowcast_radius_km
+    ck = upstream_cache.key(s.sachet_nowcast_url)
+    rows = upstream_cache.get(ck)
+    if rows is None:
+        try:
+            async with httpx.AsyncClient(timeout=s.sachet_timeout_s) as client:
+                r = await client.get(s.sachet_nowcast_url, headers={
+                    "User-Agent": s.sachet_user_agent, "Accept": "application/json"})
+                r.raise_for_status()
+                rows = (r.json() or {}).get("nowcastDetails") or []
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("SACHET nowcast fetch failed: %r", exc)
+            return []
+        upstream_cache.set(ck, rows, ttl=max(60, s.sachet_poll_seconds))
+    now = now or datetime.now(timezone.utc)
+    out = []
+    for row in rows:
+        nc = to_nowcast(row) if isinstance(row, dict) else None
+        if nc is None or nc["end"] <= now:
+            continue
+        nc["distance_km"] = _haversine_km(lat, lon, nc["lat"], nc["lon"])
+        if nc["distance_km"] <= radius_km:
+            out.append(nc)
+    return sorted(out, key=lambda n: n["distance_km"])
+
+
 async def alerts_for_point(lat: float, lon: float,
                            radius_km: float = 25.0) -> list[AlertEvent]:
     """Alerts affecting one point, carrying their exact CAP footprint.
@@ -285,6 +348,7 @@ async def alerts_for_point(lat: float, lon: float,
     Cached per rounded point + radius for the poll interval, so a hundred
     subscribers in one town cost one upstream call.
     """
+    global POINT_LAST_ERROR
     s = get_settings()
     r = max(1, min(1000, int(round(radius_km))))
     key_pt = (round(lat, 2), round(lon, 2), r)
@@ -303,9 +367,11 @@ async def alerts_for_point(lat: float, lon: float,
                 payload = resp.json()
             rows = payload.get("alerts") or [] if isinstance(payload, dict) else []
         except Exception as exc:                   # noqa: BLE001
+            POINT_LAST_ERROR = f"{type(exc).__name__}: {exc}"[:200]
             log.warning("SACHET point query failed (%s,%s r=%s): %r",
                         lat, lon, r, exc)
             return []
+        POINT_LAST_ERROR = None
         upstream_cache.set(ck, rows, ttl=max(60, s.sachet_poll_seconds))
 
     out: list[AlertEvent] = []

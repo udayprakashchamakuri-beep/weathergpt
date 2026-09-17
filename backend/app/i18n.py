@@ -119,6 +119,31 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "bn": "{severity_word}। {place}, {date}: {reason}।",
         "mr": "{severity_word}. {place}, {date}: {reason}.",
     },
+    # Warnings answer: official first, model screening second, each labelled.
+    "official_lead": {
+        "en": "Official warnings (IMD / NDMA):",
+        "hi": "आधिकारिक चेतावनी (IMD / NDMA):",
+        "te": "అధికారిక హెచ్చరికలు (IMD / NDMA):",
+        "ta": "அதிகாரப்பூர்வ எச்சரிக்கைகள் (IMD / NDMA):",
+        "bn": "সরকারি সতর্কতা (IMD / NDMA):",
+        "mr": "अधिकृत इशारे (IMD / NDMA):",
+    },
+    "model_lead": {
+        "en": "Forecast model screened against IMD thresholds (not an official warning):",
+        "hi": "IMD सीमाओं पर पूर्वानुमान मॉडल की जाँच (आधिकारिक चेतावनी नहीं):",
+        "te": "IMD పరిమితులపై వాతావరణ మోడల్ పరిశీలన (అధికారిక హెచ్చరిక కాదు):",
+        "ta": "IMD வரம்புகளுடன் முன்னறிவிப்பு மாதிரி சோதனை (அதிகாரப்பூர்வ எச்சரிக்கை அல்ல):",
+        "bn": "IMD সীমার সাথে পূর্বাভাস মডেল যাচাই (সরকারি সতর্কতা নয়):",
+        "mr": "IMD मर्यादांवर अंदाज मॉडेल तपासणी (अधिकृत इशारा नाही):",
+    },
+    "nowcast": {
+        "en": "IMD nowcast for {area} ({km} km away), {start}–{end}: {events}.",
+        "hi": "{area} ({km} किमी दूर) के लिए IMD नाउकास्ट, {start}–{end}: {events}।",
+        "te": "{area} ({km} కి.మీ దూరం) కోసం IMD నౌకాస్ట్, {start}–{end}: {events}.",
+        "ta": "{area} ({km} கி.மீ தொலைவில்) க்கான IMD நவ்காஸ்ட், {start}–{end}: {events}.",
+        "bn": "{area} ({km} কিমি দূরে)-এর জন্য IMD নাউকাস্ট, {start}–{end}: {events}।",
+        "mr": "{area} ({km} किमी दूर) साठी IMD नाउकास्ट, {start}–{end}: {events}.",
+    },
     "aqi": {
         "en": "{place} air quality: PM2.5 {pm25} µg/m³, PM10 {pm10} µg/m³ — {band} on the CPCB scale.",
         "hi": "{place} वायु गुणवत्ता: PM2.5 {pm25} µg/m³, PM10 {pm10} µg/m³ — CPCB श्रेणी: {band}।",

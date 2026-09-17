@@ -132,6 +132,12 @@ class Settings(BaseSettings):
     # dispatching. Costs one cached upstream call per distinct subscriber
     # point per poll; set false to fall back to the disc test alone.
     sachet_precise_match: bool = True
+    # IMD's 2-3 hour nowcasts per station town, keyless. SACHET's own front
+    # end calls this; checked live 2026-09-17.
+    sachet_nowcast_url: str = (
+        "https://sachet.ndma.gov.in/cap_public_website/FetchIMDNowcastAlerts")
+    # A nowcast is issued for a station town; beyond this it is not "yours".
+    nowcast_radius_km: float = 40.0
     # 5 minutes. The feed is refreshed by the issuing agencies, not on a fixed
     # cycle, so this is a politeness floor rather than a freshness target.
     # SACHET's national feed is ~50 KB and is fetched by a background poll,

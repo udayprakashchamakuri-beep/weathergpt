@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from . import advisory as adv
 from . import i18n
-from .providers import imd, openmeteo, nwp
+from .providers import imd, nwp, openmeteo, sachet
 from .schemas import (Advisory, Fact, Intent, ParsedQuery, Persona, Place,
                       Provenance, Severity)
 
@@ -257,61 +257,94 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
 
 
 # ----------------------------------------------------------------- warnings
+def _nowcast_lines(ncs: list[dict], lang: str) -> list[str]:
+    return [i18n.t("nowcast", lang, area=n["area"], km=f"{n['distance_km']:.0f}",
+                   start=n["start"].astimezone(IST).strftime("%H:%M") if n["start"] else "",
+                   end=n["end"].astimezone(IST).strftime("%H:%M"), events=n["events"])
+            for n in ncs]
+
+
 async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
-    """IMD district warnings when a key is configured; NWP-threshold
-    screening otherwise. The answer always states which one it used."""
+    """Official warnings first, then model screening, each labelled.
+
+    Official means NDMA SACHET: the CAP warnings IMD, CWC and the SDMAs issue,
+    matched by NDMA against their real polygons, plus IMD's 2-3 hour station
+    nowcasts. Neither needs the IMD key. Model screening runs the NWP forecast
+    through IMD's impact thresholds, and says that is what it is.
+    """
     sources: list[Provenance] = []
     degraded: list[str] = []
+    now = datetime.now(timezone.utc)
 
-    imd_block = None
+    official, ncs, fc = await asyncio.gather(
+        sachet.alerts_for_point(place.lat, place.lon, 25.0),
+        sachet.nowcasts_near(place.lat, place.lon),
+        nwp.forecast(place.lat, place.lon, days=5),
+    )
+    if sachet.POINT_LAST_ERROR:
+        degraded.append("NDMA SACHET could not be reached, so official warnings "
+                        "were not read; the absence of one below is not an "
+                        "all-clear")
+    official = [e for e in official if not e.expires or e.expires > now]
+
     if imd.available():
         district_id = imd.resolve_district_id(place.name)
         if district_id is None:
             degraded.append("IMD district-id mapping not loaded — cannot address "
                             f"the warning endpoint for '{place.name}', so no "
                             "official IMD warning was read")
+        elif imd_block := await imd.district_warnings(district_id):
+            sources.append(imd_block["provenance"])
         else:
-            imd_block = await imd.district_warnings(district_id)
-            if imd_block:
-                sources.append(imd_block["provenance"])
-            else:
-                degraded.append("IMD warning endpoint returned nothing for this "
-                                "district")
-    else:
-        degraded.append("IMD_API_KEY not set — screening NWP output against IMD "
-                        "impact thresholds instead of reading official warnings")
-
-    fc = await nwp.forecast(place.lat, place.lon, days=5)
+            degraded.append("IMD warning endpoint returned nothing for this "
+                            "district")
+    sources += [e.provenance for e in official] + [n["provenance"] for n in ncs]
     degraded += _gust_degradation(None, fc["days"], fc["provenance"])
     sources.append(fc["provenance"])
 
-    hits = []
     worst = Severity.GREEN
+    lines_en, lines_loc, facts = [], [], []
+    if official or ncs:
+        lines_en.append(i18n.t("official_lead", "en"))
+        lines_loc.append(i18n.t("official_lead", q.lang))
+    for e in official:
+        worst = adv._max_sev(worst, e.severity)
+        date = e.effective.astimezone(IST).strftime("%d %b")
+        for lang, out in (("en", lines_en), (q.lang, lines_loc)):
+            out.append(i18n.t("warning_active", lang, place=e.area, date=date,
+                              severity_word=i18n.severity_word(e.severity, lang),
+                              reason=e.headline))
+        facts.append(_fact(f"official_{e.id}", e.severity.value, e.provenance,
+                           None, e.headline))
+    for n in ncs:
+        worst = adv._max_sev(worst, n["severity"])
+        facts.append(_fact(f"nowcast_km_{n['area']}", round(n["distance_km"]),
+                           n["provenance"], "km", f"Nowcast station: {n['area']}"))
+    lines_en += _nowcast_lines(ncs, "en")
+    lines_loc += _nowcast_lines(ncs, q.lang)
+
+    hits = []
     for d in fc["days"]:
         sev, why = adv.classify(d)
         if sev in (Severity.YELLOW, Severity.ORANGE, Severity.RED) and why:
             hits.append((d["date"], sev, "; ".join(why)))
             worst = adv._max_sev(worst, sev)
-
-    if not hits:
-        text_en = i18n.t("warning_none", "en", place=place.name)
-        text_loc = i18n.t("warning_none", q.lang, place=place.name)
-        a = adv.build(q.persona, fc["days"])
-        return {"en": text_en, "loc": text_loc, "facts": [], "advisory": a,
-                "severity": Severity.GREEN, "sources": sources, "degraded": degraded}
-
-    lines_en, lines_loc = [], []
+    if hits:
+        lines_en.append(i18n.t("model_lead", "en"))
+        lines_loc.append(i18n.t("model_lead", q.lang))
     for date, sev, reason in hits:
-        lines_en.append(i18n.t("warning_active", "en", place=place.name, date=date,
-                               severity_word=i18n.severity_word(sev, "en"),
-                               reason=reason))
-        lines_loc.append(i18n.t("warning_active", q.lang, place=place.name, date=date,
-                                severity_word=i18n.severity_word(sev, q.lang),
-                                reason=reason))
+        for lang, out in (("en", lines_en), (q.lang, lines_loc)):
+            out.append(i18n.t("warning_active", lang, place=place.name, date=date,
+                              severity_word=i18n.severity_word(sev, lang),
+                              reason=reason))
+        facts.append(_fact(f"warning_{date}", sev.value, fc["provenance"], None, date))
 
     a = adv.build(q.persona, fc["days"])
-    facts = [_fact(f"warning_{d}", s.value, fc["provenance"], None, d)
-             for d, s, _ in hits]
+    if not lines_en:
+        return {"en": i18n.t("warning_none", "en", place=place.name),
+                "loc": i18n.t("warning_none", q.lang, place=place.name),
+                "facts": [], "advisory": a, "severity": Severity.GREEN,
+                "sources": sources, "degraded": degraded}
     return {"en": "\n".join(lines_en), "loc": "\n".join(lines_loc), "facts": facts,
             "advisory": a, "severity": worst, "sources": sources,
             "degraded": degraded}
