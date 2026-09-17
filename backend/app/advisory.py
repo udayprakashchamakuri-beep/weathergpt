@@ -120,7 +120,7 @@ def classify(day: dict) -> tuple[Severity, list[str]]:
 
 
 # ------------------------------------------------------------------ farmer
-def farmer(days: list[dict]) -> Advisory:
+def farmer(days: list[dict], when: str = "today") -> Advisory:
     d0 = days[0] if days else {}
     next3 = days[:3]
     rain_today = d0.get("rain_mm") or 0.0
@@ -136,7 +136,7 @@ def farmer(days: list[dict]) -> Advisory:
 
     # spraying window
     if rain_today >= RAIN_LIGHT:
-        actions.append("Do not spray pesticide or foliar fertiliser today -- "
+        actions.append(f"Do not spray pesticide or foliar fertiliser {when} -- "
                        f"{rain_today:.0f} mm of rain will wash it off within hours.")
         dry = next((d for d in days[1:5] if (d.get("rain_mm") or 0) < RAIN_LIGHT
                     and (d.get("wind_max_kmh") or 0) < 15), None)
@@ -148,7 +148,7 @@ def farmer(days: list[dict]) -> Advisory:
         actions.append(f"Spray early morning -- afternoon wind of "
                        f"{wind_today:.0f} km/h will cause spray drift.")
     else:
-        actions.append("Conditions are suitable for spraying today "
+        actions.append(f"Conditions are suitable for spraying {when} "
                        "(dry, wind under 15 km/h).")
 
     # irrigation
@@ -184,7 +184,7 @@ def farmer(days: list[dict]) -> Advisory:
 
 
 # --------------------------------------------------------------- fisherman
-def fisherman(days: list[dict]) -> Advisory:
+def fisherman(days: list[dict], when: str = "today") -> Advisory:
     d0 = days[0] if days else {}
     gust = d0.get("gust_max_kmh") or d0.get("wind_max_kmh") or 0.0
     # Whether the number below is a real gust or a stand-in. The thresholds
@@ -285,7 +285,7 @@ def aviation(current_wx: dict, days: list[dict]) -> Advisory:
 
 
 # ------------------------------------------------------------------- urban
-def urban(days: list[dict]) -> Advisory:
+def urban(days: list[dict], when: str = "today") -> Advisory:
     d0 = days[0] if days else {}
     rain = d0.get("rain_mm") or 0.0
     rain3 = sum((d.get("rain_mm") or 0.0) for d in days[:3])
@@ -300,12 +300,12 @@ def urban(days: list[dict]) -> Advisory:
                        "review with the district administration.")
     elif rain >= RAIN_HEAVY:
         actions.append(f"Heavy rain {rain:.0f} mm -- clear storm-water drain inlets "
-                       "today and alert the traffic control room.")
+                       f"{when} and alert the traffic control room.")
     elif rain >= RAIN_MODERATE:
         actions.append(f"Moderate rain {rain:.0f} mm -- expect slower commute and "
                        "localised ponding at underpasses.")
     else:
-        actions.append("No rain-related disruption expected today.")
+        actions.append(f"No rain-related disruption expected {when}.")
 
     if (d0.get("tmax_c") or 0) >= HEAT_SCREEN:
         actions.append(f"Heat action plan: max {d0['tmax_c']:.0f} C. Open cooling "
@@ -323,7 +323,7 @@ def urban(days: list[dict]) -> Advisory:
 
 
 # ----------------------------------------------------------------- general
-def general(days: list[dict]) -> Advisory:
+def general(days: list[dict], when: str = "today") -> Advisory:
     d0 = days[0] if days else {}
     sev, why = classify(d0)
     actions: list[str] = []
@@ -340,7 +340,7 @@ def general(days: list[dict]) -> Advisory:
         actions.append("Avoid direct sun between 12:00 and 16:00 and drink water "
                        "even when not thirsty.")
     if not actions:
-        actions.append("No weather precautions needed today.")
+        actions.append(f"No weather precautions needed {when}.")
 
     headline = {Severity.RED: "Take action -- severe weather",
                 Severity.ORANGE: "Be prepared",
@@ -350,13 +350,15 @@ def general(days: list[dict]) -> Advisory:
                     actions=actions, reason="; ".join(why) or "no threshold exceeded")
 
 
-def build(persona: Persona, days: list[dict], current_wx: dict | None = None) -> Advisory:
+def build(persona: Persona, days: list[dict], current_wx: dict | None = None,
+          when: str = "today") -> Advisory:
+    """days[0] is the day the advice is for; `when` names it in the actions."""
     if persona == Persona.FARMER:
-        return farmer(days)
+        return farmer(days, when)
     if persona == Persona.FISHERMAN:
-        return fisherman(days)
+        return fisherman(days, when)
     if persona == Persona.AVIATION:
         return aviation(current_wx or {}, days)
     if persona == Persona.URBAN:
-        return urban(days)
-    return general(days)
+        return urban(days, when)
+    return general(days, when)

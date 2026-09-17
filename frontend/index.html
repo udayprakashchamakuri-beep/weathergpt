@@ -544,16 +544,19 @@ $('#simBtn').onclick = async ()=>{
 async function refreshSys(){
   try{
     const d = await (await fetch(API+'/api/health')).json();
+    const nwp = d.sources.nwp, llm = d.sources.llm_router;
+    // The panel is rebuilt every 20 s; without this the TTS box unticks itself.
+    const ttsWasOn = !!$('#ttsOn')?.checked;
     $('#sys').innerHTML =
       `<div class="stat"><span>IMD API</span><b>${esc(d.sources.imd_api)}</b></div>
-       <div class="stat"><span>NWP</span><b>${esc(d.sources.nwp)}</b></div>
-       <div class="stat"><span>LLM router</span><b>${esc(d.sources.llm_router)}</b></div>
+       <div class="stat"><span>NWP</span><b>${esc(nwp.provider)} (${esc(nwp.role)})</b></div>
+       <div class="stat"><span>LLM router</span><b>${esc(llm.provider === 'none' ? 'rules only' : llm.provider + ' · ' + llm.model)}${llm.last_error ? ' — fell back to rules' : ''}</b></div>
        <div class="stat"><span>Language layer</span><b>${esc(d.sources.language)}</b></div>
        <div class="stat"><span>Cache hit rate</span><b>${(d.cache.response.hit_rate*100).toFixed(0)}%</b></div>
        <div class="stat"><span>Subscriptions</span><b>${d.subscriptions}</b></div>
        <div class="stat"><span>Languages</span><b>${d.templated_languages.length} templated / ${d.languages.length} supported</b></div>
        <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:10px">
-         <input type="checkbox" id="ttsOn"> Speak answers aloud (TTS)</label>`;
+         <input type="checkbox" id="ttsOn"${ttsWasOn ? ' checked' : ''}> Speak answers aloud (TTS)</label>`;
   }catch(e){ $('#sys').textContent = 'API unreachable'; }
 }
 refreshSys(); setInterval(refreshSys, 20000);

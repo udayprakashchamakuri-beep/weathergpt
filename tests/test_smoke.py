@@ -204,6 +204,31 @@ check("farmer wet day -> do not spray",
 check("farmer offered a next spray window",
       any("Next suitable spray window" in a for a in wet.actions))
 
+# Advice is for the day asked about, matched by date. "Safe to go fishing
+# tomorrow?" used to be answered from today's gusts, and at 22:00 "today" was
+# built from one remaining 3-hourly slot.
+from datetime import datetime as _dtt               # noqa: E402
+from app import tools as _t                         # noqa: E402
+_night = _dtt(2026, 9, 17, 22, 0, tzinfo=_t.IST)
+_week = [day(date=f"2026-09-{n}") for n in (17, 18, 19, 20)]
+check("evening advisory rolls over to tomorrow",
+      _t._days_from(_week, 0, True, _night)[0]["date"] == "2026-09-18")
+check("morning advisory stays on today",
+      _t._days_from(_week, 0, True, _night.replace(hour=9))[0]["date"] == "2026-09-17")
+check("'tomorrow' found by date when days[0] is already tomorrow",
+      _t._days_from(_week[1:], 1, False, _night)[0]["date"] == "2026-09-18")
+_calm_today_gale_tomorrow = [day(date="2026-09-17", gust_max_kmh=10),
+                             day(date="2026-09-18", gust_max_kmh=95)]
+check("fisherman asking about tomorrow gets tomorrow's gale",
+      build(Persona.FISHERMAN, _t._days_from(_calm_today_gale_tomorrow, 1, True,
+                                             _night)).severity == Severity.RED)
+check("day named in the answer's language, date beyond tomorrow",
+      _t._day_name("2026-09-18", "te", _night) == "రేపు"
+      and _t._day_name("2026-09-20", "en", _night) == "on 2026-09-20")
+check("farmer action names the day it is for",
+      any("tomorrow" in a for a in build(Persona.FARMER, [day(rain_mm=20)],
+                                         when="tomorrow").actions))
+
 # --------------------------------------------------- 5. alert dissemination
 print("\n[5] geofenced dissemination")
 s1 = post("/api/alerts/subscribe?address=test-near&place=Puri&channel=sms"

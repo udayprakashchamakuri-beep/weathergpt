@@ -8,6 +8,7 @@ wrapped in a Fact carrying its Provenance.
 from __future__ import annotations
 
 import asyncio
+from datetime import date, datetime, timedelta, timezone
 
 from . import advisory as adv
 from . import i18n
@@ -45,6 +46,42 @@ def _gust_degradation(cur: dict | None, days: list[dict],
         "on sustained wind instead, which is lower than gusts and may "
         "UNDER-WARN. Cross-check the IMD port bulletin before sailing."
     ]
+
+
+IST = timezone(timedelta(hours=5, minutes=30))
+# From this hour "today" has only night left. A 3-hourly provider aggregates
+# today from the remaining slots, so at 22:00 the day read max == min and the
+# farmer was told spraying "today" was fine. Field and sea decisions asked in
+# the evening are about tomorrow.
+# ponytail: fixed IST cutoff for all of India; per-place sunset if it matters.
+EVENING_HOUR = 18
+
+
+def _days_from(days: list[dict], day_offset: int, roll_evening: bool,
+               now: datetime | None = None) -> list[dict]:
+    """Days starting at the day asked about.
+
+    Matched by DATE, not index: a 3-hourly provider called after 23:30 IST has
+    no slot left today, so its days[0] is already tomorrow and days[1] would
+    answer "tomorrow" with the day after.
+    """
+    now = now or datetime.now(IST)
+    offset = day_offset or (1 if roll_evening and now.hour >= EVENING_HOUR else 0)
+    target = (now.date() + timedelta(days=offset)).isoformat()
+    i = next((i for i, d in enumerate(days) if d["date"] >= target),
+             len(days) - 1)
+    return days[i:]
+
+
+def _day_name(day_iso: str, lang: str, now: datetime | None = None) -> str:
+    """'today' / 'tomorrow' in the answer's language, else the ISO date."""
+    now = now or datetime.now(IST)
+    ahead = (date.fromisoformat(day_iso) - now.date()).days
+    if ahead == 0:
+        return i18n.t("when_today", lang)
+    if ahead == 1:
+        return i18n.t("when_tomorrow", lang)
+    return f"on {day_iso}" if lang == "en" else day_iso
 
 
 def _fmt(v, nd=0):
@@ -133,8 +170,8 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
     prov = fc["provenance"]
     days = fc["days"]
 
-    if q.day_offset and q.day_offset < len(days):
-        shown = [days[q.day_offset]]
+    if q.day_offset:
+        shown = _days_from(days, q.day_offset, roll_evening=False)[:1]
     else:
         shown = days[: min(days_n, 7)]
 
@@ -159,13 +196,12 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
     if asked_about_rain and shown:
         day = shown[0]
         mm = day.get("rain_mm")
-        when_key = "when_tomorrow" if q.day_offset >= 1 else "when_today"
         tid = "rain_yes" if (mm or 0) >= 0.2 else "rain_no"
         verdict_en = i18n.t(tid, "en", rain=_fmt(mm, 1),
-                            when=i18n.t(when_key, "en"),
+                            when=_day_name(day["date"], "en"),
                             condition=day["condition"])
         verdict_loc = i18n.t(tid, q.lang, rain=_fmt(mm, 1),
-                             when=i18n.t(when_key, q.lang),
+                             when=_day_name(day["date"], q.lang),
                              condition=i18n.condition(day["condition"], q.lang))
 
     lead_en = i18n.t("forecast_lead", "en", place=place.name, n=len(shown))
@@ -187,7 +223,8 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
 
     # Advisory is built on the days actually shown, so headline severity and
     # the reported severity badge can never disagree.
-    a = adv.build(q.persona, shown or days)
+    a = adv.build(q.persona, shown or days,
+                  when=_day_name((shown or days)[0]["date"], "en"))
     sev, _ = adv.classify(shown[0]) if shown else (Severity.GREEN, [])
     for d in shown[1:]:
         s2, _ = adv.classify(d)
@@ -284,13 +321,16 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
         nwp.current(place.lat, place.lon),
         nwp.forecast(place.lat, place.lon, days=7),
     )
-    a = adv.build(q.persona, fc["days"], cur)
+    target = _days_from(fc["days"], q.day_offset, roll_evening=True)
+    when_en = _day_name(target[0]["date"], "en")
+    when_loc = _day_name(target[0]["date"], q.lang)
+    a = adv.build(q.persona, target, cur, when=when_en)
 
     # The bubble carries the headline only; the client renders the action list
     # from `advisory.actions` so the same payload drives SMS, IVR and push
     # without the text being duplicated on screen.
-    head_en = i18n.t("advisory_lead", "en", headline=a.headline)
-    head_loc = i18n.t("advisory_lead", q.lang, headline=a.headline)
+    head_en = i18n.t("advisory_lead", "en", headline=a.headline, when=when_en)
+    head_loc = i18n.t("advisory_lead", q.lang, headline=a.headline, when=when_loc)
     body = ""
 
     facts = [

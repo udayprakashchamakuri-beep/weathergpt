@@ -128,12 +128,12 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "mr": "{place} हवेची गुणवत्ता: PM2.5 {pm25} µg/m³, PM10 {pm10} µg/m³ — CPCB श्रेणी: {band}.",
     },
     "advisory_lead": {
-        "en": "Advisory — {headline}",
-        "hi": "सलाह — {headline}",
-        "te": "సలహా — {headline}",
-        "ta": "ஆலோசனை — {headline}",
-        "bn": "পরামর্শ — {headline}",
-        "mr": "सल्ला — {headline}",
+        "en": "Advisory ({when}) — {headline}",
+        "hi": "सलाह ({when}) — {headline}",
+        "te": "సలహా ({when}) — {headline}",
+        "ta": "ஆலோசனை ({when}) — {headline}",
+        "bn": "পরামর্শ ({when}) — {headline}",
+        "mr": "सल्ला ({when}) — {headline}",
     },
     "sources_line": {
         "en": "Source: {sources}",
