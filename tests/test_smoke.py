@@ -229,6 +229,60 @@ check("farmer action names the day it is for",
       any("tomorrow" in a for a in build(Persona.FARMER, [day(rain_mm=20)],
                                          when="tomorrow").actions))
 
+# Heat stress for people and cattle. Wet-bulb is checked against Open-Meteo's
+# own hourly wet_bulb_temperature_2m for the same inputs (Nagpur, 17 Sep 2026).
+from app.advisory import thi, wet_bulb_c            # noqa: E402
+check("Stull wet-bulb matches Open-Meteo (26.3 C, 84% -> 24.1 C)",
+      abs(wet_bulb_c(26.3, 84) - 24.1) < 0.1, f"got {wet_bulb_c(26.3, 84):.2f}")
+check("Stull wet-bulb matches Open-Meteo (31.4 C, 61% -> 25.4 C)",
+      abs(wet_bulb_c(31.4, 61) - 25.4) < 0.1, f"got {wet_bulb_c(31.4, 61):.2f}")
+check("THI rises with humidity at the same temperature", thi(35, 80) > thi(35, 40))
+
+hot_humid = build(Persona.WORKER, [day(wetbulb_max_c=30.6)])
+check("worker: wet-bulb above 30 C -> red, stop 11:00-16:00",
+      hot_humid.severity == Severity.RED
+      and any("11:00 to 16:00" in a for a in hot_humid.actions))
+check("worker: no humidity data is declared, not silently ignored",
+      any("No humidity data" in a
+          for a in build(Persona.WORKER, [day(wetbulb_max_c=None)]).actions))
+windy_site = build(Persona.WORKER, [day(wetbulb_max_c=24, gust_max_kmh=62)])
+check("worker: gusts 62 km/h stop crane lifts and pours",
+      any("crane lifts" in a for a in windy_site.actions)
+      and any("concrete pours" in a for a in windy_site.actions))
+check("farmer: THI 78 triggers the dairy heat-stress action",
+      any("THI" in a for a in build(Persona.FARMER, [day(thi_max=78)]).actions))
+check("farmer: THI 70 does not",
+      not any("THI" in a for a in build(Persona.FARMER, [day(thi_max=70)]).actions))
+
+_trip = [day(date="2026-09-18", gust_max_kmh=20), day(date="2026-09-19", gust_max_kmh=25),
+         day(date="2026-09-20", gust_max_kmh=70)]
+check("fisher: 3-day trip judged on its worst day, not its first",
+      build(Persona.FISHERMAN, _trip, trip_days=3).severity == Severity.ORANGE
+      and "2026-09-20" in build(Persona.FISHERMAN, _trip, trip_days=3).actions[0])
+check("fisher: a one-day question is still judged on that day",
+      build(Persona.FISHERMAN, _trip, trip_days=1).severity == Severity.GREEN)
+check("fisher: trip longer than the forecast says so",
+      any("only covers 3 of the 5 days" in a
+          for a in build(Persona.FISHERMAN, _trip, trip_days=5).actions))
+
+from datetime import timezone as _utc                # noqa: E402
+from app import alerts as _alerts_mod                # noqa: E402
+from app.schemas import AlertEvent, Provenance, Subscription  # noqa: E402
+def _event(headline):
+    return AlertEvent(id="t", headline=headline, severity=Severity.ORANGE,
+                      area="Guntur", lat=16.3, lon=80.4, radius_km=25,
+                      effective=_dtt(2026, 9, 18, tzinfo=_utc.utc),
+                      provenance=Provenance(source="test", product="test"))
+def _sub(persona):
+    return Subscription(id="s", address="x", lat=16.3, lon=80.4, persona=persona,
+                        created_at=_dtt(2026, 9, 17, tzinfo=_utc.utc))
+check("farmer alert for hail carries the PMFBY 72-hour deadline",
+      "72 hours" in _alerts_mod.render_for(_sub(Persona.FARMER), _event("Hailstorm")))
+check("farmer alert for heat does not",
+      "72 hours" not in _alerts_mod.render_for(_sub(Persona.FARMER), _event("Heat wave")))
+check("fisherman alert for hail does not",
+      "72 hours" not in _alerts_mod.render_for(_sub(Persona.FISHERMAN), _event("Hailstorm")))
+
 # --------------------------------------------------- 5. alert dissemination
 print("\n[5] geofenced dissemination")
 s1 = post("/api/alerts/subscribe?address=test-near&place=Puri&channel=sms"
@@ -385,6 +439,9 @@ check("3-hourly rain sums across the day, absent treated as 0.0",
 check("daily max/min come from the 3-hourly slots",
       (mixed["days"][0]["tmax_c"], mixed["days"][0]["tmin_c"]) == (31.0, 26.0),
       f"got {mixed['days'][0]['tmax_c']}/{mixed['days'][0]['tmin_c']}")
+check("daily wet-bulb max comes from coincident slot temperature and humidity",
+      mixed["days"][0]["wetbulb_max_c"] == round(_adv.wet_bulb_c(31.0, 70), 1),
+      f"got {mixed['days'][0]['wetbulb_max_c']}")
 
 # --- bucketing is Asia/Kolkata, not UTC ------------------------------------
 # 19:00Z on 2 Sep is 00:30 IST on 3 Sep. Bucketed in UTC it lands on the 2nd

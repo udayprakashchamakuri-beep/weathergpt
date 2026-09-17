@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from ..advisory import thi
 from ..cache import upstream_cache
 from ..config import get_settings
 from ..schemas import Provenance
@@ -154,13 +155,22 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
         "daily": ("weather_code,temperature_2m_max,temperature_2m_min,"
                   "precipitation_sum,precipitation_probability_max,"
                   "wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset,"
-                  "relative_humidity_2m_max"),
-        "hourly": "temperature_2m,precipitation,precipitation_probability,wind_speed_10m",
+                  "relative_humidity_2m_max,wet_bulb_temperature_2m_max"),
+        "hourly": ("temperature_2m,precipitation,precipitation_probability,"
+                   "wind_speed_10m,relative_humidity_2m"),
         "forecast_days": days,
         "timezone": "Asia/Kolkata",
     }, ttl=1800)
 
     d = data.get("daily", {})
+    # THI needs coincident temperature and humidity, so it is taken per hour.
+    h = data.get("hourly", {})
+    thi_by_day: dict[str, float] = {}
+    for ts, t, rh in zip(h.get("time", []), h.get("temperature_2m", []),
+                         h.get("relative_humidity_2m", [])):
+        if t is not None and rh is not None:
+            v = thi(t, rh)
+            thi_by_day[ts[:10]] = max(v, thi_by_day.get(ts[:10], v))
     out_days = []
     for i, date in enumerate(d.get("time", [])):
         out_days.append({
@@ -172,6 +182,8 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             "wind_max_kmh": d["wind_speed_10m_max"][i],
             "gust_max_kmh": d["wind_gusts_10m_max"][i],
             "humidity_max_pct": d.get("relative_humidity_2m_max", [None] * 20)[i],
+            "wetbulb_max_c": d.get("wet_bulb_temperature_2m_max", [None] * 20)[i],
+            "thi_max": (round(thi_by_day[date], 1) if date in thi_by_day else None),
             "weather_code": d["weather_code"][i],
             "condition": describe_code(d["weather_code"][i]),
             "sunrise": d.get("sunrise", [None] * 20)[i],

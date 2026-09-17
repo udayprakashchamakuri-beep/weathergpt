@@ -28,6 +28,8 @@ Every rule cites the variable and threshold that fired, so a user can ask
 """
 from __future__ import annotations
 
+import math
+
 from .schemas import Advisory, Persona, Severity
 
 # IMD 24-h rainfall classification (mm)
@@ -56,6 +58,33 @@ HEAT_SCREEN, HEAT_SCREEN_SEVERE = 40.0, 45.0
 COLD_WAVE = 10.0
 
 THUNDER_CODES = {95, 96, 99}
+
+# Outdoor work. Maharashtra, Tamil Nadu and Gujarat treat a wet-bulb
+# temperature above 30 C as unsafe for work. The 28 C step is this build's
+# "approaching the limit" screen, not a notified figure.
+WETBULB_UNSAFE, WETBULB_CAUTION = 30.0, 28.0
+# Typical site limits, not statutory ones: concrete pours stop around 55 km/h,
+# crane lifts around 60 km/h. Each crane's rated limit governs.
+WIND_NO_POUR, WIND_NO_LIFT = 55.0, 60.0
+
+# Dairy heat stress: milk yield starts falling at THI 74.
+THI_MILK_LOSS = 74.0
+
+
+def wet_bulb_c(t: float, rh: float) -> float:
+    """Stull (2011) wet-bulb from air temperature (C) and RH (%).
+
+    Must be fed COINCIDENT values: pairing the day's max temperature with its
+    max humidity (which comes at dawn) overstates heat stress by several C.
+    """
+    return (t * math.atan(0.151977 * math.sqrt(rh + 8.313659))
+            + math.atan(t + rh) - math.atan(rh - 1.676331)
+            + 0.00391838 * rh ** 1.5 * math.atan(0.023101 * rh) - 4.686035)
+
+
+def thi(t: float, rh: float) -> float:
+    """Temperature-humidity index for cattle (NRC 1971), from C and %."""
+    return (1.8 * t + 32) - (0.55 - 0.0055 * rh) * (1.8 * t - 26)
 
 
 def _max_sev(*sev: Severity) -> Severity:
@@ -172,6 +201,12 @@ def farmer(days: list[dict], when: str = "today") -> Advisory:
         actions.append("High humidity with warm days -- scout for fungal blast / "
                        "blight and keep a prophylactic ready.")
 
+    # livestock
+    if (t_hi := d0.get("thi_max")) is not None and t_hi >= THI_MILK_LOSS:
+        actions.append(f"Dairy animals: heat stress index (THI) {t_hi:.0f} {when}, "
+                       "above 74 where milk yield starts to fall. Keep cattle in "
+                       "shade with water available, and feed in the cool hours.")
+
     headline = {
         Severity.RED: "Protect the crop -- severe weather ahead",
         Severity.ORANGE: "Adjust field operations -- disruptive weather likely",
@@ -184,7 +219,7 @@ def farmer(days: list[dict], when: str = "today") -> Advisory:
 
 
 # --------------------------------------------------------------- fisherman
-def fisherman(days: list[dict], when: str = "today") -> Advisory:
+def fisherman(days: list[dict], when: str = "today", trip_days: int = 1) -> Advisory:
     d0 = days[0] if days else {}
     gust = d0.get("gust_max_kmh") or d0.get("wind_max_kmh") or 0.0
     # Whether the number below is a real gust or a stand-in. The thresholds
@@ -208,7 +243,8 @@ def fisherman(days: list[dict], when: str = "today") -> Advisory:
         actions.append(f"Small mechanised boats should stay within sight of the "
                        f"coast -- gusts up to {gust:.0f} km/h.")
     else:
-        actions.append(f"Sea conditions are workable -- winds up to {gust:.0f} km/h.")
+        # Wind only: a thunderstorm can still make the headline "not advised".
+        actions.append(f"Wind is within limits -- up to {gust:.0f} km/h.")
 
     if d0.get("weather_code") in THUNDER_CODES:
         actions.append("Thunderstorm risk: lower the mast antenna and avoid open "
@@ -219,6 +255,27 @@ def fisherman(days: list[dict], when: str = "today") -> Advisory:
     if gust >= WIND_SMALL_CRAFT and calm:
         actions.append(f"Next workable window: {calm['date']} "
                        f"(gusts {calm.get('gust_max_kmh', 0):.0f} km/h).")
+
+    # A multi-day trip is judged on its worst day, not its first: out past
+    # ~20 km there is no mobile signal, so a warning issued mid-trip never
+    # arrives.
+    if trip_days > 1:
+        trip = days[:trip_days]
+        worst = max(trip, key=lambda d: d.get("gust_max_kmh") or d.get("wind_max_kmh") or 0)
+        w_gust = worst.get("gust_max_kmh") or worst.get("wind_max_kmh") or 0.0
+        if worst is not d0 and w_gust >= WIND_SMALL_CRAFT:
+            sev = _max_sev(sev, Severity.ORANGE if w_gust < WIND_GALE else Severity.RED)
+            actions.insert(0, f"NOT safe across the next {trip_days} days: gusts "
+                              f"{w_gust:.0f} km/h on {worst['date']}, above the 34 kt "
+                              f"small-craft threshold. On a multi-day trip, be back "
+                              f"in harbour before {worst['date']} or delay sailing.")
+        if len(trip) < trip_days:
+            actions.append(f"The forecast only covers {len(trip)} of the "
+                           f"{trip_days} days asked about; after {trip[-1]['date']} "
+                           "you are sailing without one.")
+        actions.append("Note this before you leave: mobile signal ends about 20 km "
+                       "offshore, so warnings issued during the trip will not "
+                       "reach your phone.")
 
     if gust_is_substituted:
         actions.append(
@@ -350,13 +407,70 @@ def general(days: list[dict], when: str = "today") -> Advisory:
                     actions=actions, reason="; ".join(why) or "no threshold exceeded")
 
 
+# ---------------------------------------------------- outdoor work / sites
+def worker(days: list[dict], when: str = "today") -> Advisory:
+    d0 = days[0] if days else {}
+    sev, why = classify(d0)
+    actions: list[str] = []
+    tw = d0.get("wetbulb_max_c")
+    gust = d0.get("gust_max_kmh") or d0.get("wind_max_kmh") or 0.0
+    rain = d0.get("rain_mm") or 0.0
+
+    if tw is None:
+        actions.append("No humidity data from this forecast source, so heat stress "
+                       "is screened on temperature alone and may be understated.")
+    elif tw >= WETBULB_UNSAFE:
+        sev = _max_sev(sev, Severity.RED)
+        why.append(f"wet-bulb {tw:.1f} C, above the 30 C safe-work limit")
+        actions.append(f"Wet-bulb temperature reaches {tw:.1f} C {when}, above the "
+                       "30 C limit Maharashtra, Tamil Nadu and Gujarat set for safe "
+                       "work. Stop heavy outdoor work from 11:00 to 16:00 and move "
+                       "it to early morning.")
+    elif tw >= WETBULB_CAUTION:
+        sev = _max_sev(sev, Severity.ORANGE)
+        why.append(f"wet-bulb {tw:.1f} C, close to the 30 C limit")
+        actions.append(f"Wet-bulb temperature reaches {tw:.1f} C {when}, close to "
+                       "the 30 C limit. Give water every 20 minutes and a shaded "
+                       "rest every hour, and do the heaviest work before 11:00.")
+    if (tw is None or tw < WETBULB_CAUTION) and (d0.get("tmax_c") or 0) >= HEAT_SCREEN:
+        actions.append(f"Max {d0['tmax_c']:.0f} C: keep heavy work out of "
+                       "12:00-16:00 and give water and shade breaks.")
+
+    if d0.get("weather_code") in THUNDER_CODES:
+        actions.append("Lightning expected: get workers off scaffolding, roofs and "
+                       "cranes, and out of open ground, until the storm passes.")
+    if gust >= WIND_NO_LIFT:
+        actions.append(f"Gusts {gust:.0f} km/h: stop crane lifts (typical limit "
+                       "60 km/h; the crane's own rated limit governs).")
+    if gust >= WIND_NO_POUR:
+        actions.append(f"Gusts {gust:.0f} km/h: postpone concrete pours and "
+                       "formwork.")
+    if rain >= RAIN_HEAVY:
+        actions.append(f"Heavy rain {rain:.0f} mm {when}: postpone concrete pours "
+                       "and excavation, and keep dewatering pumps at footings.")
+    elif rain >= RAIN_MODERATE:
+        actions.append(f"Rain {rain:.0f} mm {when}: cover fresh concrete and keep "
+                       "pour timings flexible.")
+    if not actions:
+        actions.append(f"No weather restrictions on outdoor work {when}.")
+
+    headline = {Severity.RED: "Stop or reschedule outdoor work",
+                Severity.ORANGE: "Restrict outdoor work",
+                Severity.YELLOW: "Work with precautions",
+                Severity.GREEN: "Normal outdoor work"}.get(sev, "Work with precautions")
+    return Advisory(persona=Persona.WORKER, headline=headline, severity=sev,
+                    actions=actions, reason="; ".join(why) or "no threshold exceeded")
+
+
 def build(persona: Persona, days: list[dict], current_wx: dict | None = None,
-          when: str = "today") -> Advisory:
+          when: str = "today", trip_days: int = 1) -> Advisory:
     """days[0] is the day the advice is for; `when` names it in the actions."""
     if persona == Persona.FARMER:
         return farmer(days, when)
     if persona == Persona.FISHERMAN:
-        return fisherman(days, when)
+        return fisherman(days, when, trip_days)
+    if persona == Persona.WORKER:
+        return worker(days, when)
     if persona == Persona.AVIATION:
         return aviation(current_wx or {}, days)
     if persona == Persona.URBAN:

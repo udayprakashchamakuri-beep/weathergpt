@@ -213,10 +213,24 @@ def render_for(sub: Subscription, event: AlertEvent) -> str:
         Persona.FISHERMAN: "Do not put to sea. Return to the nearest harbour.",
         Persona.AVIATION: "Expect operational impact; review alternates.",
         Persona.URBAN: "Pre-position pumps and issue a commuter advisory.",
+        Persona.WORKER: "Stop outdoor work during the warning and move workers off "
+                        "scaffolding, cranes and open ground.",
         Persona.GENERAL: "Stay indoors during the peak and avoid low-lying roads.",
         Persona.RESEARCHER: "Event logged for verification against observations.",
     }[sub.persona]
+    # PMFBY rejects a localised-calamity claim not intimated within 72 hours,
+    # and missing that window is the commonest reason farmers lose a claim.
+    # The alert is the moment they need the deadline.
+    if sub.persona == Persona.FARMER and any(
+            w in event.headline.lower() for w in CROP_LOSS_HAZARDS):
+        action += (" If your insured crop is damaged, report it within 72 hours "
+                   "(PMFBY): Krishi Rakshak helpline 14447.")
     return f"{base} {action}"
+
+
+# Hazards PMFBY covers as localised or post-harvest calamities.
+CROP_LOSS_HAZARDS = ("hail", "flood", "inundation", "cloudburst", "cloud burst",
+                     "landslide", "cyclon", "heavy rain", "unseasonal")
 
 
 def dispatch(event: AlertEvent) -> dict:

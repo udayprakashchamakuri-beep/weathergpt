@@ -35,6 +35,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from ..advisory import thi, wet_bulb_c
 from ..cache import upstream_cache
 from ..config import get_settings
 from ..schemas import Provenance
@@ -195,7 +196,7 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
         key = when.date().isoformat()
         b = buckets.setdefault(key, {"temps": [], "winds": [], "gusts": [],
                                      "rain": 0.0, "codes": [], "pops": [],
-                                     "humid": []})
+                                     "humid": [], "wetbulb": [], "thi": []})
         main = slot.get("main") or {}
         wind = slot.get("wind") or {}
 
@@ -204,6 +205,9 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
                 b["temps"].append(v)
         if (v := main.get("humidity")) is not None:
             b["humid"].append(v)
+            if (t := main.get("temp")) is not None:
+                b["wetbulb"].append(wet_bulb_c(t, v))
+                b["thi"].append(thi(t, v))
         if (v := wind.get("speed")) is not None:
             b["winds"].append(v)
         if (v := wind.get("gust")) is not None:
@@ -233,6 +237,8 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             "wind_max_kmh": _to_kmh(max(b["winds"])) if b["winds"] else None,
             "gust_max_kmh": _to_kmh(max(b["gusts"])) if b["gusts"] else None,
             "humidity_max_pct": max(b["humid"]) if b["humid"] else None,
+            "wetbulb_max_c": round(max(b["wetbulb"]), 1) if b["wetbulb"] else None,
+            "thi_max": round(max(b["thi"]), 1) if b["thi"] else None,
             "weather_code": code,
             "condition": (openmeteo.describe_code(code) if code is not None
                           else "unknown"),

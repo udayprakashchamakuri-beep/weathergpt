@@ -52,6 +52,7 @@ class Persona(str, Enum):
     FISHERMAN = "fisherman"
     AVIATION = "aviation"
     URBAN = "urban"          # smart-city / civic ops
+    WORKER = "worker"        # outdoor work, construction sites
     RESEARCHER = "researcher"
 
 

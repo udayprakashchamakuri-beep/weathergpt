@@ -66,7 +66,8 @@ INTENT_LEXICON: dict[Intent, list[str]] = {
         "sow", "sowing", "harvest", "irrigate", "irrigation", "fertilizer",
         "pesticide", "go fishing", "sail", "put to sea", "fly", "flight",
         "takeoff", "landing", "match", "picnic", "travel", "commute",
-        "kya karu", "salah", "sallah", "vyavasayam",
+        "kya karu", "salah", "sallah", "vyavasayam", "heat stress",
+        "pour concrete", "crane", "work outside", "outdoor work",
     ],
     Intent.CLIMATE: [
         "trend", "climate", "average", "historical", "history", "over the years",
@@ -124,6 +125,10 @@ PERSONA_LEXICON: dict[Persona, list[str]] = {
     Persona.URBAN: ["city", "traffic", "waterlogging", "water logging", "drain",
                     "commute", "municipal", "civic", "ward", "smart city",
                     "power cut", "outage"],
+    Persona.WORKER: ["construction", "labour", "labourer", "labourers", "worker",
+                     "workers", "outdoor work", "work outside", "delivery rider",
+                     "crane", "concrete", "scaffold", "scaffolding", "mgnrega",
+                     "heat stress", "wet bulb", "wet-bulb", "brick kiln"],
     Persona.RESEARCHER: ["dataset", "anomaly", "reanalysis", "era5", "gridded",
                          "correlation", "time series", "statistics", "significance"],
 }
@@ -301,7 +306,7 @@ state any weather value. Convert the user's message into JSON only:
    script: the gazetteer and the geocoder are both Latin-only, so a name in
    Devanagari or Telugu resolves to nothing and the user gets asked which
    district they meant. null if no place is mentioned,
- "persona": one of ["general","farmer","fisherman","aviation","urban","researcher"],
+ "persona": one of ["general","farmer","fisherman","aviation","urban","worker","researcher"],
  "lang": ISO-639-1 code of the user's language,
  "day_offset": integer days ahead (0 = today),
  "horizon_days": integer 1-16,

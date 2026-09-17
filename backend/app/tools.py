@@ -324,7 +324,7 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
     target = _days_from(fc["days"], q.day_offset, roll_evening=True)
     when_en = _day_name(target[0]["date"], "en")
     when_loc = _day_name(target[0]["date"], q.lang)
-    a = adv.build(q.persona, target, cur, when=when_en)
+    a = adv.build(q.persona, target, cur, when=when_en, trip_days=q.horizon_days)
 
     # The bubble carries the headline only; the client renders the action list
     # from `advisory.actions` so the same payload drives SMS, IVR and push

@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from ..advisory import thi, wet_bulb_c
 from ..cache import upstream_cache
 from ..config import get_settings
 from ..schemas import Provenance
@@ -214,7 +215,8 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
         t = datetime.fromisoformat(entry["time"].replace("Z", "+00:00"))
         key = t.astimezone(IST).date().isoformat()
         b = buckets.setdefault(key, {"temps": [], "winds": [], "gusts": [],
-                                     "rain": 0.0, "codes": [], "probs": []})
+                                     "rain": 0.0, "codes": [], "probs": [],
+                                     "wetbulb": [], "thi": []})
 
         inst = entry["data"]["instant"]["details"]
         if (v := inst.get("air_temperature")) is not None:
@@ -223,6 +225,10 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             b["winds"].append(v)
         if (v := inst.get("wind_speed_of_gust")) is not None:
             b["gusts"].append(v)
+        t, rh = inst.get("air_temperature"), inst.get("relative_humidity")
+        if t is not None and rh is not None:
+            b["wetbulb"].append(wet_bulb_c(t, rh))
+            b["thi"].append(thi(t, rh))
 
         one = entry["data"].get("next_1_hours")
         six = entry["data"].get("next_6_hours")
@@ -256,6 +262,8 @@ async def forecast(lat: float, lon: float, days: int = 7) -> dict:
             "wind_max_kmh": _ms_to_kmh(max(b["winds"])) if b["winds"] else None,
             "gust_max_kmh": _ms_to_kmh(max(b["gusts"])) if b["gusts"] else None,
             "humidity_max_pct": None,
+            "wetbulb_max_c": round(max(b["wetbulb"]), 1) if b["wetbulb"] else None,
+            "thi_max": round(max(b["thi"]), 1) if b["thi"] else None,
             "weather_code": code,
             "condition": _condition(code, None),
             "sunrise": None,
