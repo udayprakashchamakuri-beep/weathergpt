@@ -33,7 +33,14 @@ class Settings(BaseSettings):
     # Bhashini (MeitY) ASR + NMT + TTS. Falls back to on-device Web Speech
     # API in the browser and to bundled phrase templates for text.
     bhashini_user_id: str | None = None
-    bhashini_api_key: str | None = None
+    bhashini_api_key: str | None = None          # ulcaApiKey (the "Udyat" key)
+    # Keys issued through Udyat come as ulcaApiKey + inference key, with no
+    # userID. Without a userID the config call still returns the serviceId but
+    # omits pipelineInferenceAPIEndPoint, so the compute call needs these two.
+    bhashini_inference_key: str | None = None
+    bhashini_compute_url: str = (
+        "https://dhruva-api.bhashini.gov.in/services/inference/pipeline"
+    )
     bhashini_config_url: str = (
         "https://meity-auth.ulcacontrib.org/ulca/apis/v0/model/getModelsPipeline"
     )

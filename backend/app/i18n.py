@@ -24,6 +24,7 @@ from __future__ import annotations
 import httpx
 
 from .config import get_settings
+from .nlu import numerals_preserved
 from .schemas import Severity
 
 LANGUAGES = {
@@ -249,13 +250,17 @@ async def bhashini_translate(text: str, source: str, target: str) -> str | None:
     depends on it.
     """
     s = get_settings()
-    if not (s.bhashini_user_id and s.bhashini_api_key) or source == target:
+    if (not s.bhashini_api_key or source == target
+            or not (s.bhashini_user_id or s.bhashini_inference_key)):
         return None
+    headers = {"ulcaApiKey": s.bhashini_api_key}
+    if s.bhashini_user_id:
+        headers["userID"] = s.bhashini_user_id
     try:
         async with httpx.AsyncClient(timeout=s.http_timeout) as client:
             cfg = await client.post(
                 s.bhashini_config_url,
-                headers={"userID": s.bhashini_user_id, "ulcaApiKey": s.bhashini_api_key},
+                headers=headers,
                 json={
                     "pipelineTasks": [{
                         "taskType": "translation",
@@ -269,23 +274,29 @@ async def bhashini_translate(text: str, source: str, target: str) -> str | None:
             cfg.raise_for_status()
             cfgj = cfg.json()
             service_id = cfgj["pipelineResponseConfig"][0]["config"][0]["serviceId"]
-            endpoint = cfgj["pipelineInferenceAPIEndPoint"]
-            cb_url = endpoint["callbackUrl"]
-            auth = endpoint["inferenceApiKey"]
+            endpoint = cfgj.get("pipelineInferenceAPIEndPoint") or {}
+            cb_url = endpoint.get("callbackUrl") or s.bhashini_compute_url
+            auth = endpoint.get("inferenceApiKey") or {
+                "name": "Authorization", "value": s.bhashini_inference_key}
 
-            out = await client.post(
-                cb_url,
-                headers={auth["name"]: auth["value"]},
-                json={
-                    "pipelineTasks": [{
-                        "taskType": "translation",
-                        "config": {"language": {"sourceLanguage": source,
-                                                "targetLanguage": target},
-                                   "serviceId": service_id},
-                    }],
-                    "inputData": {"input": [{"source": text}]},
-                },
-            )
+            # Dhruva's gateway intermittently 504s or returns DHRUVA-101 and
+            # then succeeds on the next call (seen 2026-09-17), so try twice.
+            for attempt in range(2):
+                out = await client.post(
+                    cb_url,
+                    headers={auth["name"]: auth["value"]},
+                    json={
+                        "pipelineTasks": [{
+                            "taskType": "translation",
+                            "config": {"language": {"sourceLanguage": source,
+                                                    "targetLanguage": target},
+                                       "serviceId": service_id},
+                        }],
+                        "inputData": {"input": [{"source": text}]},
+                    },
+                )
+                if out.status_code < 500 or attempt:
+                    break
             out.raise_for_status()
             return out.json()["pipelineResponse"][0]["output"][0]["target"]
     except Exception:
@@ -297,4 +308,8 @@ async def localize(text_en: str, lang: str) -> str:
     if lang == "en":
         return text_en
     translated = await bhashini_translate(text_en, "en", lang)
-    return translated or text_en
+    # NMT is a language model too: same numeral guard as an LLM rewrite. A
+    # translation that drops or alters a figure is discarded for the English.
+    if translated and numerals_preserved(text_en, translated):
+        return translated
+    return text_en

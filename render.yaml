@@ -52,6 +52,13 @@ services:
       - key: METNO_CONTACT
         sync: false
 
+      # Bhashini NMT for the languages with no bundled template. Both are
+      # secrets: set them in the dashboard, never here.
+      - key: BHASHINI_API_KEY
+        sync: false
+      - key: BHASHINI_INFERENCE_KEY
+        sync: false
+
       - key: RATE_LIMIT_CHAT_PER_MIN
         value: "60"
       - key: RATE_LIMIT_SUBSCRIBE_PER_MIN

@@ -205,7 +205,7 @@ async def chat(req: ChatRequest, request: Request):
         answer_loc = await i18n.localize(result["en"], parsed.lang)
         if answer_loc == result["en"]:
             degraded.append(f"no bundled template for '{parsed.lang}' and Bhashini "
-                            "not configured — answered in English")
+                            "not configured or unavailable — answered in English")
 
     resp = ChatResponse(
         answer=answer_loc,
