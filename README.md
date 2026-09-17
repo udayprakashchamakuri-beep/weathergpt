@@ -28,7 +28,7 @@ NWP output, the rule-based router and bundled language templates. Add keys in
 `backend/.env` (see `.env.example`) to upgrade each layer independently.
 
 ```bash
-# 110 checks: routing, grounding, thresholds, dissemination, cache latency,
+# 149 checks: routing, grounding, thresholds, dissemination, cache latency,
 # unit conversions, SACHET normalisation and CAP footprint matching.
 # The suite drives /api/chat faster than a human, so start the server with
 # RATE_LIMIT_CHAT_PER_MIN=0; export DEMO_TOKEN too if the server has one set.
@@ -68,10 +68,11 @@ IMD's own impact thresholds as auditable rules per sector:
 
 | Sector | Example output |
 |---|---|
-| Farmer | spray/no-spray window, irrigation skip, sowing window, disease pressure |
-| Fisherman | go / no-go against the 34 kt small-craft threshold, next workable window |
+| Farmer | spray window by the hour (dry 6 h after, wind < 15 km/h), irrigation skip, sowing window, disease pressure, dairy heat stress (THI ≥ 74) |
+| Fisherman | go / no-go against the 34 kt small-craft threshold, whole-trip check on the worst day, next workable window |
 | Aviation | surface wind in kt, crosswind and RVR flags, contaminated-runway warning |
 | City / DM | waterlogging risk, pump pre-positioning, heat action plan trigger |
+| Outdoor work | wet-bulb against the 30 °C safe-work limit (Maharashtra, Tamil Nadu, Gujarat), crane-lift and concrete-pour wind limits, lightning |
 
 Every advisory reports the variable and threshold that fired, so "why?" has a
 real answer.
@@ -122,8 +123,18 @@ units and place names are injected after translation and never pass through an
 MT model. Six languages ship with bundled templates (en, hi, te, ta, bn, mr);
 adding a seventh is a data change, not a code change.
 
-Bhashini (MeitY) handles the long tail — ASR for speech input, NMT for
-free-text questions with no template, TTS for output — and is optional.
+Bhashini (MeitY) NMT handles the long tail: answers in the seven supported
+languages with no bundled template (gu, kn, ml, pa, or, as, ur). It is optional,
+and it is a language model, so its output passes the same numeral guard as an
+LLM rewrite. Tested live, Malayalam dropped a temperature and Telugu turned
+*do not put to sea* into *do not fall into the sea*; a translation that loses a
+figure is discarded for the English. Speech input and output use the
+browser's Web Speech API. Bhashini TTS failed every call when tested
+(2026-09-17), so it is not wired in.
+
+Keys issued through Bhashini's Udyat portal have no user id: set
+`BHASHINI_API_KEY` to the *udyat key* and `BHASHINI_INFERENCE_KEY` to the
+*inference* key.
 
 ---
 
@@ -137,7 +148,7 @@ free-text questions with no template, TTS for output — and is optional.
 | Reanalysis / climate | ERA5 daily archive, 1940– | live |
 | Air quality | CAMS composition, banded to the CPCB National AQI scale | live |
 | Alert exchange | WMO **WIS2.0** MQTT Global Broker, CAP 1.2 | interface built, broker not subscribed in the demo |
-| Language | Bhashini ASR/NMT/TTS + bundled templates | templates live, Bhashini optional |
+| Language | bundled templates + Bhashini NMT; browser Web Speech for voice | templates live, Bhashini NMT live (guarded) |
 
 `GET /api/imd/endpoints` lists the full IMD integration surface, so the wiring
 is visible before a key is issued.
@@ -190,7 +201,7 @@ frontend/
   index.html     single-file chat UI, voice, canvas charts, no dependencies
   app.html       WeatherNow dashboard at /app -- installable, works offline
 tests/
-  test_smoke.py  110 checks
+  test_smoke.py  149 checks
 ```
 
 ## Deploying to Render
