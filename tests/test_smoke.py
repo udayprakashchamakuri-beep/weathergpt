@@ -683,6 +683,20 @@ check("chat warnings carry the nowcast's authoritative provenance",
       any(s.authoritative for s in _w["sources"]))
 check("nowcast line rendered in the asker's language",
       "నౌకాస్ట్" in asyncio.run(_warn([], [_nc_live], lang="te"))["loc"])
+_w_orange = asyncio.run(_warn([_event("Lightning")], []))
+check("an official ORANGE warning is not followed by 'Nothing of concern'",
+      _w_orange["advisory"].headline == "Follow the official warning"
+      and _w_orange["advisory"].severity == Severity.ORANGE
+      and not any(x.startswith("No ") for x in _w_orange["advisory"].actions),
+      f"{_w_orange['advisory']}")
+
+from app.nlu import parse_rules as _pr                   # noqa: E402
+check("'...tomorrow?' is tomorrow despite the question mark",
+      _pr("Should I spray my cotton in Nizamabad tomorrow?", "en",
+          Persona.GENERAL).day_offset == 1)
+check("Telugu 'రేపు ...?' still tomorrow after punctuation stripping",
+      _pr("రేపు వర్షం పడుతుందా?", "te", Persona.GENERAL).day_offset == 1)
+
 _w_down = asyncio.run(_warn([], [], point_error="ConnectTimeout"))
 check("SACHET unreachable is declared, not answered as an all-clear",
       any("not an all-clear" in x for x in _w_down["degraded"]), f"{_w_down['degraded']}")

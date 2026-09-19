@@ -237,8 +237,11 @@ def parse_rules(text: str, declared_lang: str = "en",
 
     # ---- horizon --------------------------------------------------------
     day_offset = 0
+    # "...Nizamabad tomorrow?" left "tomorrow?" unmatched and was answered for
+    # today. Explicit punctuation only: \W would also strip Indic vowel signs.
+    unpunct = re.sub(r"[?!.,;:'\"()।|]", " ", low)
     for word, off in sorted(DAY_WORDS.items(), key=lambda kv: -len(kv[0])):
-        if f" {word} " in low:
+        if f" {word} " in unpunct:
             day_offset = off
             break
     horizon = 1

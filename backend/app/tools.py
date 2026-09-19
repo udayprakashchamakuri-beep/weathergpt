@@ -340,6 +340,10 @@ async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
         facts.append(_fact(f"warning_{date}", sev.value, fc["provenance"], None, date))
 
     a = adv.build(q.persona, fc["days"])
+    official_worst = Severity.GREEN
+    for sev in [e.severity for e in official] + [n["severity"] for n in ncs]:
+        official_worst = adv._max_sev(official_worst, sev)
+    a = adv.under_official(a, official_worst)
     if not lines_en:
         return {"en": i18n.t("warning_none", "en", place=place.name),
                 "loc": i18n.t("warning_none", q.lang, place=place.name),

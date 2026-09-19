@@ -534,6 +534,31 @@ def worker(days: list[dict], when: str = "today") -> Advisory:
                     actions=actions, reason="; ".join(why) or "no threshold exceeded")
 
 
+# What each role does when an official warning is in force. Shared by the
+# alert fan-out and the chat warnings answer, so both say the same thing.
+ALERT_ACTIONS = {
+    Persona.FARMER: "Move harvested produce under cover and postpone spraying.",
+    Persona.FISHERMAN: "Do not put to sea. Return to the nearest harbour.",
+    Persona.AVIATION: "Expect operational impact; review alternates.",
+    Persona.URBAN: "Pre-position pumps and issue a commuter advisory.",
+    Persona.WORKER: "Stop outdoor work during the warning and move workers off "
+                    "scaffolding, cranes and open ground.",
+    Persona.GENERAL: "Stay indoors during the peak and avoid low-lying roads.",
+    Persona.RESEARCHER: "Event logged for verification against observations.",
+}
+
+
+def under_official(a: Advisory, severity: Severity) -> Advisory:
+    """An official warning outranks the model: an ORANGE lightning alert must
+    not sit above a card saying "Nothing of concern"."""
+    if _max_sev(severity, a.severity) == a.severity:
+        return a
+    keep = [x for x in a.actions if not x.startswith("No ")]
+    return Advisory(persona=a.persona, headline="Follow the official warning",
+                    severity=severity, actions=[ALERT_ACTIONS[a.persona]] + keep,
+                    reason="official warning in force; " + a.reason)
+
+
 def build(persona: Persona, days: list[dict], current_wx: dict | None = None,
           when: str = "today", trip_days: int = 1, steps: list[dict] | None = None,
           not_before: str | None = None) -> Advisory:

@@ -208,16 +208,7 @@ def render_for(sub: Subscription, event: AlertEvent) -> str:
     base = i18n.t("warning_active", sub.lang, place=event.area,
                   date=event.effective.strftime("%d %b"),
                   severity_word=word, reason=event.headline)
-    action = {
-        Persona.FARMER: "Move harvested produce under cover and postpone spraying.",
-        Persona.FISHERMAN: "Do not put to sea. Return to the nearest harbour.",
-        Persona.AVIATION: "Expect operational impact; review alternates.",
-        Persona.URBAN: "Pre-position pumps and issue a commuter advisory.",
-        Persona.WORKER: "Stop outdoor work during the warning and move workers off "
-                        "scaffolding, cranes and open ground.",
-        Persona.GENERAL: "Stay indoors during the peak and avoid low-lying roads.",
-        Persona.RESEARCHER: "Event logged for verification against observations.",
-    }[sub.persona]
+    action = adv.ALERT_ACTIONS[sub.persona]
     # PMFBY rejects a localised-calamity claim not intimated within 72 hours,
     # and missing that window is the commonest reason farmers lose a claim.
     # The alert is the moment they need the deadline.
