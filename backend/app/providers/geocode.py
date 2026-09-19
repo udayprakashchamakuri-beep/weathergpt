@@ -285,6 +285,9 @@ async def reverse(lat: float, lon: float) -> Place:
             best, best_d = (name, glat, glon, state), d
     if best and best_d < 4.0:      # ~2 degrees
         name, glat, glon, state = best
-        return Place(name=f"near {name.title()}", admin1=state, lat=lat, lon=lon,
+        # Within ~35 km the town IS the answer's place; "Advisory for near
+        # Nagarkurnool" read as broken. Farther out, "near" stays honest.
+        label = name.title() if best_d < 0.1 else f"near {name.title()}"
+        return Place(name=label, admin1=state, lat=lat, lon=lon,
                      source="reverse-gazetteer")
     return Place(name=f"{lat:.2f}, {lon:.2f}", lat=lat, lon=lon, source="gps")

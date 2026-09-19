@@ -95,6 +95,10 @@ d_where = post("/api/chat", {"message": "this suggestion is to which place",
 check("'which place?' is answered from the conversation, not re-run",
       d_where["answer_en"].lower() == "that was for nagarkurnool.",
       d_where["answer_en"])
+import asyncio as _aio                                  # noqa: E402
+from app.providers import geocode as _geo_r           # noqa: E402
+check("a GPS fix beside a town is named plainly, not 'near <town>'",
+      _aio.run(_geo_r.reverse(16.48, 78.31)).name == "Nagarkurnool")
 d3 = post("/api/chat", {"message": "and tomorrow?", "session_id": _sid})
 check("a follow-up with no place keeps the last place",
       "nagarkurnool" in (d3.get("place") or {}).get("name", "").lower(),
