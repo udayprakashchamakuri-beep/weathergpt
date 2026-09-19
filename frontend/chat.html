@@ -430,6 +430,9 @@ function addError(msg) {
 }
 
 /* -------------------------------------------------------------------- ask */
+// One conversation per page load, so a reply like "nagarkurnool" answers
+// the question the assistant just asked.
+const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
 async function ask(question, viaVoice) {
   const text = (question || "").trim();
   if (!text) return;
@@ -438,7 +441,7 @@ async function ask(question, viaVoice) {
   addMe(text);
   addTyping();
   try {
-    const body = { message: text, lang: detectLang(text) || state.lang };
+    const body = { message: text, lang: detectLang(text) || state.lang, session_id: SESSION_ID };
     if (state.lat != null) { body.lat = state.lat; body.lon = state.lon; }
     const r = await fetch("/api/chat", {
       method: "POST",

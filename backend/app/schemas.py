@@ -104,7 +104,8 @@ class ChatRequest(BaseModel):
     persona: Persona = Persona.GENERAL
     lat: float | None = None
     lon: float | None = None
-    session_id: str | None = None
+    # Client-generated per page; keys the previous turn for follow-ups.
+    session_id: str | None = Field(None, max_length=64)
 
 
 class ChatResponse(BaseModel):

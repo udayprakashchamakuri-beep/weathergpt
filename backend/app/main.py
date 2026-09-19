@@ -142,6 +142,14 @@ async def _resolve_place(req: ChatRequest, parsed) -> Place | None:
     return None
 
 
+# Previous turn per conversation, so "Which place?" -> "nagarkurnool" answers
+# the question that was asked. Oldest first: popped and re-inserted on use.
+# ponytail: in-process like SUBSCRIPTIONS -- per worker, lost on restart;
+# move to the shared store with them.
+CONTEXT: dict[str, tuple[float, object]] = {}
+CONTEXT_TTL_S, CONTEXT_MAX = 1800, 5000
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request):
     # Guards the shared upstream NWP quota, not the CPU: every request from
@@ -150,7 +158,23 @@ async def chat(req: ChatRequest, request: Request):
     t0 = time.perf_counter()
 
     parsed = await nlu.parse(req.message, req.lang, req.persona)
+    if req.session_id:
+        prev = CONTEXT.pop(req.session_id, (0.0, None))
+        if time.time() - prev[0] < CONTEXT_TTL_S:
+            bare = nlu.parse_rules(req.message, req.lang, req.persona).confidence \
+                < nlu.FOLLOW_UP_CONFIDENCE
+            # Shared GPS beats a remembered place name.
+            carried = nlu.carry_over(parsed, prev[1], bare)
+            if req.lat is not None and not parsed.place_text:
+                carried = carried.model_copy(update={"place_text": None})
+            parsed = carried
     place = await _resolve_place(req, parsed)
+    if req.session_id:
+        remembered = parsed.model_copy(
+            update={"place_text": place.name if place else parsed.place_text})
+        CONTEXT[req.session_id] = (time.time(), remembered)
+        while len(CONTEXT) > CONTEXT_MAX:
+            CONTEXT.pop(next(iter(CONTEXT)))
 
     if place is None:
         return ChatResponse(

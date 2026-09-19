@@ -229,6 +229,10 @@ const demoHeaders = () => DEMO_TOKEN ? {'X-Demo-Token': DEMO_TOKEN} : {};
 const $ = s => document.querySelector(s);
 const chat = $('#chat');
 let coords = null, lastChart = null, lastMeta = null;
+// One conversation per page load, so a reply like "nagarkurnool" answers
+// the question the assistant just asked.
+const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
+
 
 const SPEECH_LANG = {en:'en-IN',hi:'hi-IN',te:'te-IN',ta:'ta-IN',bn:'bn-IN',mr:'mr-IN'};
 
@@ -415,7 +419,7 @@ async function send(){
     const r = await fetch(API+'/api/chat',{
       method:'POST', headers:{'content-type':'application/json'},
       body: JSON.stringify({message:text, lang:$('#lang').value,
-        persona:$('#persona').value, lat:coords?.lat, lon:coords?.lon})
+        persona:$('#persona').value, lat:coords?.lat, lon:coords?.lon, session_id:SESSION_ID})
     });
     const d = await r.json();
     if(d.detail){ bubble('Error: '+d.detail,'bot','sev-red'); }

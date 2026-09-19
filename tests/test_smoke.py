@@ -75,6 +75,25 @@ for q, want_intent, want_place in ROUTING:
           d["intent"] == want_intent and want_place.lower() in got_place.lower(),
           f"got {d['intent']} / {got_place}")
 
+# Conversation memory. The assistant asked "Which place?", the user answered
+# "nagarkurnool", and got current conditions for a general user -- the spray
+# question was forgotten between messages.
+import uuid as _uuid                                  # noqa: E402
+_sid = _uuid.uuid4().hex
+d1 = post("/api/chat", {"message": "Should I spray my crop this week?", "session_id": _sid})
+d2 = post("/api/chat", {"message": "nagarkurnool", "session_id": _sid})
+check("a bare place answers the pending question (advisory, farmer)",
+      d2["intent"] == "advisory" and d2["persona"] == "farmer"
+      and "nagarkurnool" in (d2.get("place") or {}).get("name", "").lower(),
+      f"got {d2['intent']} / {d2['persona']} / {(d2.get('place') or {}).get('name')}")
+d3 = post("/api/chat", {"message": "and tomorrow?", "session_id": _sid})
+check("a follow-up with no place keeps the last place",
+      "nagarkurnool" in (d3.get("place") or {}).get("name", "").lower(),
+      f"got {(d3.get('place') or {}).get('name')}")
+d4 = post("/api/chat", {"message": "nagarkurnool"})
+check("without a session a bare place is still just current weather",
+      d4["intent"] == "current_weather")
+
 # ------------------------------------------------- 2. grounding contract
 print("\n[2] grounding: every fact carries provenance")
 d = post("/api/chat", {"message": "Weather in Chennai right now"})

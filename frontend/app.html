@@ -1035,6 +1035,9 @@ function openSocket() {
   };
 }
 
+// One conversation per page load, so a reply like "nagarkurnool" answers
+// the question the assistant just asked.
+const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
 async function askHero(question, viaVoice, langOverride) {
   // The hero is the product: a real question, routed and answered with
   // grounded values. It also feeds the do-this-now panel, because the
@@ -1047,7 +1050,7 @@ async function askHero(question, viaVoice, langOverride) {
     // is silently dropped and the router asks which place to check.
     body: JSON.stringify({ message: question,
                            lang: langOverride || detectLang(question) || state.lang,
-                           lat: state.lat, lon: state.lon })
+                           lat: state.lat, lon: state.lon, session_id: SESSION_ID })
   });
   if (!r.ok) throw new Error("chat " + r.status);
   const d = await r.json();

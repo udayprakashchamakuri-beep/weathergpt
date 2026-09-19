@@ -413,3 +413,30 @@ async def parse(text: str, lang: str = "en",
     if rules.confidence >= 0.7 and not needs_place:
         return rules
     return await parse_llm(text, rules)
+
+
+FOLLOW_UP_CONFIDENCE = 0.5
+
+
+def carry_over(q: ParsedQuery, prev: ParsedQuery | None, bare: bool) -> ParsedQuery:
+    """Fill a follow-up from the previous turn of the same conversation.
+
+    `bare` means the rules found no intent of their own ("nagarkurnool",
+    "what about Guntur"): the message answers the previous question, so it
+    inherits that question's intent and day. A follow-up with no place
+    ("and tomorrow?") keeps the previous place. A general persona inherits the
+    previous one either way -- a farmer is still a farmer one message later.
+    """
+    if prev is None:
+        return q
+    upd: dict = {}
+    if bare and prev.intent != Intent.UNKNOWN:
+        upd.update(intent=prev.intent, variables=prev.variables,
+                   years_back=prev.years_back, month=prev.month,
+                   day_offset=q.day_offset or prev.day_offset,
+                   horizon_days=q.horizon_days if q.day_offset else prev.horizon_days)
+    if not q.place_text and prev.place_text:
+        upd["place_text"] = prev.place_text
+    if q.persona == Persona.GENERAL and prev.persona != Persona.GENERAL:
+        upd["persona"] = prev.persona
+    return q.model_copy(update=upd)
