@@ -7,6 +7,7 @@ UI:   http://localhost:8000/
 from __future__ import annotations
 
 import asyncio
+import re
 import json
 import logging
 import time
@@ -148,6 +149,11 @@ async def _resolve_place(req: ChatRequest, parsed) -> Place | None:
 # move to the shared store with them.
 CONTEXT: dict[str, tuple[float, object]] = {}
 CONTEXT_TTL_S, CONTEXT_MAX = 1800, 5000
+WHICH_PLACE = re.compile(
+    r"\b(which|what)\s+(place|location|city|district|village|area|town)\b"
+    r"|\bwhere\s+(is|was)\s+(this|that|it)\b|\bfor\s+where\b", re.I)
+# English only: "kahan" / "ekkada" also open real questions ("barish kahan
+# hogi?" -- where will it rain), which must not be swallowed.
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -160,7 +166,17 @@ async def chat(req: ChatRequest, request: Request):
     parsed = await nlu.parse(req.message, req.lang, req.persona)
     if req.session_id:
         prev = CONTEXT.pop(req.session_id, (0.0, None))
-        if time.time() - prev[0] < CONTEXT_TTL_S:
+        fresh = time.time() - prev[0] < CONTEXT_TTL_S
+        if fresh and prev[1].place_text and WHICH_PLACE.search(req.message):
+            # A question about the last answer, not a new weather question:
+            # re-running it repeated the advice without saying where.
+            CONTEXT[req.session_id] = prev
+            return ChatResponse(
+                answer=i18n.t("place_was", parsed.lang, place=prev[1].place_text),
+                answer_en=i18n.t("place_was", "en", place=prev[1].place_text),
+                intent=prev[1].intent, persona=prev[1].persona, lang=parsed.lang,
+                latency_ms=int((time.perf_counter() - t0) * 1000))
+        if fresh:
             bare = nlu.parse_rules(req.message, req.lang, req.persona).confidence \
                 < nlu.FOLLOW_UP_CONFIDENCE
             # Shared GPS beats a remembered place name.

@@ -86,6 +86,15 @@ check("a bare place answers the pending question (advisory, farmer)",
       d2["intent"] == "advisory" and d2["persona"] == "farmer"
       and "nagarkurnool" in (d2.get("place") or {}).get("name", "").lower(),
       f"got {d2['intent']} / {d2['persona']} / {(d2.get('place') or {}).get('name')}")
+check("the advice names the place it is for",
+      "nagarkurnool" in d2["answer_en"].lower(), d2["answer_en"])
+check("a farmer is not shown the sailing gust caveat",
+      not any("wind-gust" in x for x in d2["degraded"]), f"{d2['degraded']}")
+d_where = post("/api/chat", {"message": "this suggestion is to which place",
+                             "session_id": _sid})
+check("'which place?' is answered from the conversation, not re-run",
+      d_where["answer_en"].lower() == "that was for nagarkurnool.",
+      d_where["answer_en"])
 d3 = post("/api/chat", {"message": "and tomorrow?", "session_id": _sid})
 check("a follow-up with no place keeps the last place",
       "nagarkurnool" in (d3.get("place") or {}).get("name", "").lower(),

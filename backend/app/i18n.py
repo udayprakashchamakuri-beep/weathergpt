@@ -153,12 +153,21 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "mr": "{place} हवेची गुणवत्ता: PM2.5 {pm25} µg/m³, PM10 {pm10} µg/m³ — CPCB श्रेणी: {band}.",
     },
     "advisory_lead": {
-        "en": "Advisory ({when}) — {headline}",
-        "hi": "सलाह ({when}) — {headline}",
-        "te": "సలహా ({when}) — {headline}",
-        "ta": "ஆலோசனை ({when}) — {headline}",
-        "bn": "পরামর্শ ({when}) — {headline}",
-        "mr": "सल्ला ({when}) — {headline}",
+        "en": "Advisory for {place} ({when}) — {headline}",
+        "hi": "{place} के लिए सलाह ({when}) — {headline}",
+        "te": "{place} కోసం సలహా ({when}) — {headline}",
+        "ta": "{place} க்கான ஆலோசனை ({when}) — {headline}",
+        "bn": "{place}-এর জন্য পরামর্শ ({when}) — {headline}",
+        "mr": "{place} साठी सल्ला ({when}) — {headline}",
+    },
+    # "Which place was that for?" -- answered from the conversation, not re-run.
+    "place_was": {
+        "en": "That was for {place}.",
+        "hi": "यह {place} के लिए था।",
+        "te": "అది {place} కోసం.",
+        "ta": "அது {place} க்கானது.",
+        "bn": "এটি {place}-এর জন্য ছিল।",
+        "mr": "ते {place} साठी होते.",
     },
     "sources_line": {
         "en": "Source: {sources}",

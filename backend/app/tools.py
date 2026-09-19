@@ -21,8 +21,14 @@ def _fact(key, value, prov: Provenance, unit=None, label=None) -> Fact:
     return Fact(key=key, value=value, unit=unit, label=label, provenance=prov)
 
 
+# Gusts drive these roles' decisions (small-craft go/no-go, crosswind, crane
+# lifts). A farmer shown a sailing caveat on every answer learns to ignore
+# the amber box.
+GUST_PERSONAS = {Persona.FISHERMAN, Persona.AVIATION, Persona.WORKER}
+
+
 def _gust_degradation(cur: dict | None, days: list[dict],
-                      prov: Provenance) -> list[str]:
+                      prov: Provenance, persona: Persona | None = None) -> list[str]:
     """Declare it when wind thresholds are being evaluated on a substitute.
 
     Not every provider publishes wind gusts -- MET Norway publishes none for
@@ -36,6 +42,8 @@ def _gust_degradation(cur: dict | None, days: list[dict],
     saying so is not. Returned in the response's `degraded` array so the
     caveat travels with the answer.
     """
+    if persona is not None and persona not in GUST_PERSONAS:
+        return []
     missing_current = cur is not None and cur.get("wind_gust_kmh") is None
     missing_days = any(d.get("gust_max_kmh") is None for d in (days or [])[:3])
     if not (missing_current or missing_days):
@@ -125,7 +133,7 @@ async def answer_current(q: ParsedQuery, place: Place) -> dict:
 
     a = adv.build(q.persona, fc["days"], cur)
 
-    degraded = _gust_degradation(cur, fc["days"], prov)
+    degraded = _gust_degradation(cur, fc["days"], prov, q.persona)
 
     facts = [
         _fact("temp_c", cur["temp_c"], prov, "°C", "Temperature"),
@@ -243,7 +251,7 @@ async def answer_forecast(q: ParsedQuery, place: Place) -> dict:
         "en": lead_en + "\n" + "\n".join(lines_en),
         "loc": lead_loc + "\n" + "\n".join(lines_loc),
         "facts": facts, "advisory": a, "severity": sev,
-        "degraded": _gust_degradation(None, days, prov),
+        "degraded": _gust_degradation(None, days, prov, q.persona),
         "sources": [prov],
         "chart": {
             "type": "daily",
@@ -299,7 +307,7 @@ async def answer_warnings(q: ParsedQuery, place: Place) -> dict:
             degraded.append("IMD warning endpoint returned nothing for this "
                             "district")
     sources += [e.provenance for e in official] + [n["provenance"] for n in ncs]
-    degraded += _gust_degradation(None, fc["days"], fc["provenance"])
+    degraded += _gust_degradation(None, fc["days"], fc["provenance"], q.persona)
     sources.append(fc["provenance"])
 
     worst = Severity.GREEN
@@ -371,8 +379,10 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
     # The bubble carries the headline only; the client renders the action list
     # from `advisory.actions` so the same payload drives SMS, IVR and push
     # without the text being duplicated on screen.
-    head_en = i18n.t("advisory_lead", "en", headline=a.headline, when=when_en)
-    head_loc = i18n.t("advisory_lead", q.lang, headline=a.headline, when=when_loc)
+    head_en = i18n.t("advisory_lead", "en", headline=a.headline, when=when_en,
+                     place=place.name)
+    head_loc = i18n.t("advisory_lead", q.lang, headline=a.headline, when=when_loc,
+                      place=place.name)
     body = ""
 
     facts = [
@@ -381,7 +391,7 @@ async def answer_advisory(q: ParsedQuery, place: Place) -> dict:
     ]
     return {"en": f"{head_en}{body}", "loc": f"{head_loc}{body}",
             "facts": facts, "advisory": a, "severity": a.severity,
-            "degraded": _gust_degradation(cur, fc["days"], fc["provenance"]),
+            "degraded": _gust_degradation(cur, fc["days"], fc["provenance"], q.persona),
             "sources": [cur["provenance"], fc["provenance"]],
             "chart": {"type": "daily",
                       "labels": [d["date"][5:] for d in fc["days"][:7]],
